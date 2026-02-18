@@ -27,7 +27,7 @@ export default function Home() {
     };
   }, []);
 
-  // --- AGGRESSIVE COMPRESSION LOGIC ---
+  // --- AGGRESSIVE COMPRESSION LOGIC --- (dummy touch)
   const compressImage = async (file: File): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
