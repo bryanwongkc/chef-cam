@@ -2,20 +2,62 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
+
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-function parseModelJson(rawText: string) {
-  const cleaned = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const firstBrace = cleaned.indexOf("{");
-    const lastBrace = cleaned.lastIndexOf("}");
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-      throw new Error("Model did not return valid JSON");
-    }
-    return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-  }
+type RecipeApiResponse = {
+  dishName: string;
+  shortDescription: string;
+  cuisine: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+  servings: string;
+  prepTime: string;
+  cookTime: string;
+  caloriesPerServing: string;
+  ingredients: Array<{ item: string; amount: string }>;
+  instructions: string[];
+  platingTips: string[];
+};
+
+function parseModelJson(raw: string): RecipeApiResponse {
+  const cleaned = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  const jsonString =
+    firstBrace !== -1 && lastBrace !== -1
+      ? cleaned.slice(firstBrace, lastBrace + 1)
+      : cleaned;
+
+  const parsed = JSON.parse(jsonString) as Partial<RecipeApiResponse>;
+
+  return {
+    dishName: parsed.dishName || "Unknown Dish",
+    shortDescription:
+      parsed.shortDescription || "A flavorful dish generated from your photo.",
+    cuisine: parsed.cuisine || "Fusion",
+    difficulty: ["Easy", "Medium", "Hard"].includes(parsed.difficulty || "")
+      ? (parsed.difficulty as "Easy" | "Medium" | "Hard")
+      : "Medium",
+    servings: parsed.servings || "2-3",
+    prepTime: parsed.prepTime || "20 min",
+    cookTime: parsed.cookTime || "30 min",
+    caloriesPerServing: parsed.caloriesPerServing || "Approx. 450 kcal",
+    ingredients: Array.isArray(parsed.ingredients)
+      ? parsed.ingredients
+          .filter((x) => x && typeof x === "object")
+          .map((x) => ({
+            item: (x.item as string) || "Ingredient",
+            amount: (x.amount as string) || "To taste",
+          }))
+      : [],
+    instructions: Array.isArray(parsed.instructions)
+      ? parsed.instructions.map((x) => String(x)).filter(Boolean)
+      : [],
+    platingTips: Array.isArray(parsed.platingTips)
+      ? parsed.platingTips.map((x) => String(x)).filter(Boolean)
+      : [],
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -25,18 +67,19 @@ export async function POST(req: NextRequest) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Server is missing GEMINI_API_KEY (or GOOGLE_API_KEY)" },
+        { error: "Missing GEMINI_API_KEY (or GOOGLE_API_KEY)." },
         { status: 500 }
       );
     }
 
     const formData = await req.formData();
-    const file = formData.get("image") as File;
-
-    if (!file) {
-      return NextResponse.json({ error: "No image uploaded" }, { status: 400 });
+    const file = formData.get("image");
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: "No image uploaded." }, { status: 400 });
     }
-    if (!ALLOWED_MIME_TYPES.has((file.type || "").toLowerCase())) {
+
+    const mimeType = (file.type || "").toLowerCase();
+    if (!ALLOWED_MIME_TYPES.has(mimeType)) {
       return NextResponse.json(
         { error: "Unsupported image type. Use JPG, PNG, or WebP." },
         { status: 400 }
@@ -44,41 +87,50 @@ export async function POST(req: NextRequest) {
     }
 
     const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    const imageBase64 = Buffer.from(bytes).toString("base64");
 
-    // Using Gemini 2.5 Flash
+    const prompt = [
+      "You are an expert chef and food stylist.",
+      "Analyze the image and produce a professional recipe.",
+      "Return ONLY valid JSON with this exact structure:",
+      "{",
+      '  "dishName": "string",',
+      '  "shortDescription": "string (max 2 sentences)",',
+      '  "cuisine": "string",',
+      '  "difficulty": "Easy | Medium | Hard",',
+      '  "servings": "string",',
+      '  "prepTime": "string",',
+      '  "cookTime": "string",',
+      '  "caloriesPerServing": "string",',
+      '  "ingredients": [',
+      '    { "item": "string", "amount": "string" }',
+      "  ],",
+      '  "instructions": ["string", "string"],',
+      '  "platingTips": ["string", "string"]',
+      "}",
+      "No markdown. No explanation outside JSON.",
+    ].join("\n");
+
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-    const prompt = `
-      You are a Michelin-star chef. Analyze this food image.
-      Return strictly a JSON object (no markdown formatting) with this structure:
-      {
-        "name": "Name of the dish",
-        "calories": "Estimated calories per serving",
-        "description": "A mouth-watering 1-sentence description.",
-        "ingredients": ["Ingredient 1", "Ingredient 2", ...],
-        "instructions": ["Step 1...", "Step 2..."]
-      }
-    `;
-
     const result = await model.generateContent([
       prompt,
       {
         inlineData: {
-          data: buffer.toString("base64"),
-          mimeType: file.type || "image/jpeg",
+          data: imageBase64,
+          mimeType,
         },
       },
     ]);
 
-    const response = await result.response;
-    const text = response.text();
+    const text = result.response.text();
     const parsed = parseModelJson(text);
-
     return NextResponse.json(parsed);
   } catch (error) {
-    console.error("Gemini Error:", error);
-    return NextResponse.json({ error: "Failed to analyze image" }, { status: 500 });
+    console.error("Analyze route error:", error);
+    return NextResponse.json(
+      { error: "Failed to analyze image and generate recipe." },
+      { status: 500 }
+    );
   }
 }

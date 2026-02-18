@@ -1,291 +1,328 @@
 "use client";
 
-import { useState, useRef, useEffect, ChangeEvent } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { ChangeEvent, useMemo, useRef, useState } from "react";
 
-interface RecipeData {
-  name: string;
-  calories: string;
-  description: string;
-  ingredients: string[];
+type Ingredient = {
+  item: string;
+  amount: string;
+};
+
+type Recipe = {
+  dishName: string;
+  shortDescription: string;
+  cuisine: string;
+  difficulty: "Easy" | "Medium" | "Hard";
+  servings: string;
+  prepTime: string;
+  cookTime: string;
+  caloriesPerServing: string;
+  ingredients: Ingredient[];
   instructions: string[];
-}
+  platingTips: string[];
+};
 
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024; // 4MB safety limit for serverless body size
-const UNSUPPORTED_MIME_TYPES = new Set(["image/heic", "image/heif"]);
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export default function Home() {
-  const [image, setImage] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [data, setData] = useState<RecipeData | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const previewUrlRef = useRef<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    return () => {
-      if (previewUrlRef.current) {
-        URL.revokeObjectURL(previewUrlRef.current);
-      }
-    };
-  }, []);
+  const hasResult = useMemo(() => Boolean(recipe), [recipe]);
 
-  // --- AGGRESSIVE COMPRESSION LOGIC --- (dummy touch)
-  const compressImage = async (file: File): Promise<Blob> => {
+  async function compressImage(file: File): Promise<File> {
     return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-      img.src = url;
+      const image = new Image();
+      const sourceUrl = URL.createObjectURL(file);
+      image.src = sourceUrl;
 
-      img.onload = () => {
-        URL.revokeObjectURL(url);
+      image.onload = () => {
+        URL.revokeObjectURL(sourceUrl);
+
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-        if (!ctx) return reject(new Error("Canvas error"));
-
-        // FORCE SMALL SIZE: Max 512px is plenty for AI
-        const MAX_SIZE = 512;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > MAX_SIZE) {
-            height *= MAX_SIZE / width;
-            width = MAX_SIZE;
-          }
-        } else {
-          if (height > MAX_SIZE) {
-            width *= MAX_SIZE / height;
-            height = MAX_SIZE;
-          }
+        if (!ctx) {
+          reject(new Error("Could not process image."));
+          return;
         }
+
+        const MAX_SIDE = 1280;
+        let width = image.width;
+        let height = image.height;
+        const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
 
         canvas.width = width;
         canvas.height = height;
-        ctx.drawImage(img, 0, 0, width, height);
+        ctx.drawImage(image, 0, 0, width, height);
 
-        // AGGRESSIVE COMPRESSION: Quality 0.5 (50%)
         canvas.toBlob(
           (blob) => {
-            if (blob) {
-              console.log(`Original size: ${file.size / 1024}KB`);
-              console.log(`Compressed size: ${blob.size / 1024}KB`);
-              resolve(blob);
-            } else {
-              reject(new Error("Compression failed"));
+            if (!blob) {
+              reject(new Error("Could not compress image."));
+              return;
             }
+            const finalFile = new File([blob], `dish-${Date.now()}.jpg`, {
+              type: "image/jpeg",
+            });
+            resolve(finalFile);
           },
           "image/jpeg",
-          0.5 
+          0.82
         );
       };
-      img.onerror = () =>
-        reject(new Error("This photo format is not supported by your browser."));
-    });
-  };
 
-  const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+      image.onerror = () => {
+        URL.revokeObjectURL(sourceUrl);
+        reject(new Error("Unsupported image format. Use JPG, PNG, or WebP."));
+      };
+    });
+  }
+
+  async function analyzeImage(file: File) {
+    setLoading(true);
+    setError(null);
+    setRecipe(null);
 
     try {
       if (!file.type.startsWith("image/")) {
-        throw new Error("Please upload a valid image.");
-      }
-      if (UNSUPPORTED_MIME_TYPES.has(file.type.toLowerCase())) {
-        throw new Error(
-          "HEIC/HEIF is not supported. Use JPG/PNG/WebP or set iPhone Camera Format to Most Compatible."
-        );
+        throw new Error("Please choose a valid image file.");
       }
 
-      setLoading(true);
-      setError(null);
-      setData(null);
-
-      const updatePreview = (blob: Blob) => {
-        const previewUrl = URL.createObjectURL(blob);
-        if (previewUrlRef.current) {
-          URL.revokeObjectURL(previewUrlRef.current);
-        }
-        previewUrlRef.current = previewUrl;
-        setImage(previewUrl);
-      };
-
-      // Show immediate preview while compression/upload happens
-      updatePreview(file);
-
-      // Compress if possible, otherwise upload original file
-      let uploadFile: File = file;
-      try {
-        const compressedBlob = await compressImage(file);
-        uploadFile = new File([compressedBlob], `${Date.now()}-capture.jpg`, {
-          type: "image/jpeg",
-        });
-        updatePreview(uploadFile);
-      } catch (compressionError) {
-        console.warn("Compression failed.", compressionError);
+      if (!ALLOWED_MIME_TYPES.has(file.type.toLowerCase())) {
+        throw new Error("Use JPG, PNG, or WebP. HEIC/HEIF is not supported.");
       }
 
-      if (uploadFile.size > MAX_UPLOAD_BYTES) {
-        throw new Error("Image is too large. Use a smaller JPG/PNG/WebP image.");
+      const compressed = await compressImage(file);
+      if (compressed.size > MAX_UPLOAD_BYTES) {
+        throw new Error("Image is too large after compression. Try another photo.");
       }
 
-      // Send to API
+      const nextPreview = URL.createObjectURL(compressed);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(nextPreview);
+
       const formData = new FormData();
-      formData.append("image", uploadFile, uploadFile.name);
+      formData.append("image", compressed, compressed.name);
 
       const response = await fetch("/api/analyze", {
         method: "POST",
         body: formData,
       });
 
+      const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        const errorText = await response.text();
-        // Check specifically for payload error
-        if (response.status === 413) {
-          throw new Error("Image is still too large. Try a different one.");
-        }
-        throw new Error(errorText || `Server error: ${response.status}`);
+        throw new Error(payload?.error || "Request failed. Please try again.");
+      }
+      if (!payload) {
+        throw new Error("No recipe data received.");
       }
 
-      const result = await response.json();
-      if (result.error) throw new Error(result.error);
-
-      setData(result);
+      setRecipe(payload as Recipe);
     } catch (err: unknown) {
-      console.error(err);
-      const message = err instanceof Error ? err.message : "Failed. Please try again.";
+      const message =
+        err instanceof Error ? err.message : "Failed to generate recipe.";
       setError(message);
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  async function onFileSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await analyzeImage(file);
+    event.target.value = "";
+  }
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-white relative overflow-hidden font-sans">
-      <div className="fixed top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-900/30 rounded-full blur-[100px]" />
-      <div className="fixed bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-orange-900/20 rounded-full blur-[100px]" />
+    <main className="min-h-screen bg-[#f6f2ea] text-[#19140f]">
+      <div className="mx-auto w-full max-w-6xl px-5 py-8 md:px-8 md:py-12">
+        <header className="relative overflow-hidden rounded-3xl border border-[#e7dccb] bg-gradient-to-br from-[#fff7ea] via-[#ffe9cc] to-[#f9d9b0] p-6 shadow-[0_20px_60px_rgba(91,56,24,0.12)] md:p-10">
+          <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-[#fff1dc] blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-8 left-10 h-28 w-28 rounded-full bg-[#ffd5a5] blur-xl" />
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[#8e5d2f]">
+            ChefCam
+          </p>
+          <h1 className="mt-3 max-w-3xl text-3xl font-semibold leading-tight md:text-5xl">
+            Turn any dish photo into a restaurant-style recipe with Gemini 2.5
+            Flash.
+          </h1>
+          <p className="mt-4 max-w-2xl text-sm text-[#67482c] md:text-base">
+            Capture from your phone camera or upload an image. We detect the
+            dish and generate a structured ingredient list with professional
+            cooking instructions.
+          </p>
 
-      <div className="max-w-md mx-auto min-h-screen flex flex-col p-6 relative z-10">
-        <header className="flex justify-between items-center mb-8 pt-4">
-          <div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent">
-              ChefCam
-            </h1>
-            <p className="text-neutral-400 text-xs">Powered by Gemini 2.5</p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              className="rounded-xl bg-[#21160f] px-5 py-3 text-sm font-semibold text-[#fff6eb] transition hover:bg-[#322115]"
+            >
+              Take Photo
+            </button>
+            <button
+              type="button"
+              onClick={() => uploadInputRef.current?.click()}
+              className="rounded-xl border border-[#5a3b1e] bg-transparent px-5 py-3 text-sm font-semibold text-[#4c321a] transition hover:bg-[#fff1de]"
+            >
+              Upload Image
+            </button>
           </div>
         </header>
 
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          className="hidden"
+          onChange={onFileSelected}
+        />
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={onFileSelected}
+        />
+
         {error && (
-          <div className="bg-red-500/20 text-red-200 p-4 rounded-xl mb-6 text-sm border border-red-500/30">
+          <section className="mt-6 rounded-2xl border border-[#f2b5aa] bg-[#fff2ef] p-4 text-sm text-[#812719]">
             {error}
-          </div>
+          </section>
         )}
 
-        {!image && (
-          <div className="flex-1 flex flex-col items-center justify-center text-center space-y-4 opacity-60">
-            <div className="w-20 h-20 rounded-full bg-neutral-800 flex items-center justify-center border border-neutral-700">
-              <CameraIcon className="w-8 h-8 text-neutral-400" />
+        <section className="mt-7 grid gap-6 md:grid-cols-5">
+          <div className="md:col-span-2">
+            <div className="overflow-hidden rounded-3xl border border-[#e5dac9] bg-white shadow-sm">
+              <div className="aspect-[4/3] w-full bg-[#efe5d8]">
+                {previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={previewUrl}
+                    alt="Uploaded dish"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[#6e5136]">
+                    Add a dish photo to generate recipe details.
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-[#f0e8dd] p-4">
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="w-full rounded-xl border border-[#d8c7b1] bg-[#fffaf2] px-4 py-2.5 text-sm font-medium text-[#5f4125] transition hover:bg-[#fff0da]"
+                >
+                  Replace Photo
+                </button>
+                {loading && (
+                  <p className="mt-3 text-center text-sm font-medium text-[#8f6238]">
+                    Analyzing image and building recipe...
+                  </p>
+                )}
+              </div>
             </div>
-            <p className="text-neutral-400">Snap a photo of food to get a recipe</p>
           </div>
-        )}
 
-        <div className="flex-1 space-y-6 pb-32">
-          {image && (
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="relative w-full aspect-video rounded-2xl overflow-hidden shadow-2xl border border-neutral-800"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image} alt="Food" className="w-full h-full object-cover" />
-              {loading && (
-                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center flex-col space-y-3">
-                  <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-sm font-medium text-orange-400 animate-pulse">Consulting Michelin Chef...</p>
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          <AnimatePresence>
-            {data && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-neutral-900/80 backdrop-blur-md border border-neutral-800 rounded-3xl p-6 shadow-2xl space-y-6"
-              >
-                <div>
-                  <div className="flex justify-between items-start">
-                    <h2 className="text-2xl font-bold text-white leading-tight">{data.name}</h2>
-                    <span className="bg-green-500/10 text-green-400 text-xs px-2 py-1 rounded-full font-medium border border-green-500/20">
-                      {data.calories}
-                    </span>
-                  </div>
-                  <p className="text-neutral-400 text-sm mt-2">{data.description}</p>
-                </div>
-
-                <div className="h-px bg-neutral-800" />
-
-                <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-3">Ingredients</h3>
-                  <ul className="space-y-2">
-                    {data.ingredients.map((ing, i) => (
-                      <li key={i} className="flex items-center space-x-3 text-sm text-neutral-300">
-                        <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-                        <span>{ing}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="h-px bg-neutral-800" />
-
-                <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-3">Preparation</h3>
-                  <div className="space-y-4">
-                    {data.instructions.map((step, i) => (
-                      <div key={i} className="flex space-x-4">
-                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-neutral-800 border border-neutral-700 text-xs flex items-center justify-center text-neutral-400">
-                          {i + 1}
-                        </span>
-                        <p className="text-sm text-neutral-300 leading-relaxed pt-0.5">{step}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
+          <div className="md:col-span-3">
+            {!hasResult && !loading && (
+              <div className="rounded-3xl border border-dashed border-[#c8b196] bg-[#fffbf5] p-8 text-center text-[#6a4b2f]">
+                <h2 className="text-xl font-semibold">Recipe will appear here</h2>
+                <p className="mt-2 text-sm">
+                  Use a clear top-down or angled food photo for the best output.
+                </p>
+              </div>
             )}
-          </AnimatePresence>
-        </div>
 
-        <div className="fixed bottom-8 left-0 right-0 flex justify-center z-50 pointer-events-none">
-          <label className="pointer-events-auto cursor-pointer group">
-            <input 
-              type="file" 
-              accept="image/jpeg,image/png,image/webp" 
-              capture="environment" 
-              className="hidden" 
-              onChange={handleImageUpload}
-              ref={fileInputRef}
-            />
-            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.3)] transition-transform group-active:scale-95">
-              <CameraIcon className="w-8 h-8 text-black" />
-            </div>
-          </label>
-        </div>
+            {hasResult && recipe && (
+              <article className="overflow-hidden rounded-3xl border border-[#ddcfba] bg-white shadow-[0_16px_48px_rgba(65,39,18,0.1)]">
+                <div className="bg-gradient-to-r from-[#2a1e13] to-[#54341e] p-6 text-[#fdf4e8]">
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#eccb9f]">
+                    Generated Recipe
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold md:text-3xl">
+                    {recipe.dishName}
+                  </h2>
+                  <p className="mt-3 text-sm text-[#f0dfc8]">
+                    {recipe.shortDescription}
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                    <MetaPill label={`Cuisine: ${recipe.cuisine}`} />
+                    <MetaPill label={`Difficulty: ${recipe.difficulty}`} />
+                    <MetaPill label={`Serves: ${recipe.servings}`} />
+                    <MetaPill label={`Prep: ${recipe.prepTime}`} />
+                    <MetaPill label={`Cook: ${recipe.cookTime}`} />
+                    <MetaPill label={`Calories: ${recipe.caloriesPerServing}`} />
+                  </div>
+                </div>
 
+                <div className="grid gap-0 md:grid-cols-5">
+                  <section className="border-b border-[#efe7dc] bg-[#fffaf2] p-6 md:col-span-2 md:border-b-0 md:border-r">
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-[#7f5a38]">
+                      Ingredients
+                    </h3>
+                    <ul className="mt-4 space-y-3">
+                      {recipe.ingredients.map((ing, idx) => (
+                        <li key={`${ing.item}-${idx}`} className="text-sm">
+                          <p className="font-medium text-[#2a1d12]">{ing.item}</p>
+                          <p className="text-[#6f5237]">{ing.amount}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+
+                  <section className="p-6 md:col-span-3">
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-[#7f5a38]">
+                      Method
+                    </h3>
+                    <ol className="mt-4 space-y-4">
+                      {recipe.instructions.map((step, idx) => (
+                        <li key={`${step}-${idx}`} className="flex gap-3 text-sm">
+                          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#2e2013] text-xs font-semibold text-[#ffead2]">
+                            {idx + 1}
+                          </span>
+                          <span className="leading-relaxed text-[#2b1f15]">{step}</span>
+                        </li>
+                      ))}
+                    </ol>
+
+                    {recipe.platingTips?.length > 0 && (
+                      <div className="mt-7 rounded-2xl border border-[#ebddca] bg-[#fff8ee] p-4">
+                        <h4 className="text-sm font-semibold text-[#5c3f22]">
+                          Plating Tips
+                        </h4>
+                        <ul className="mt-2 space-y-1 text-sm text-[#6e5034]">
+                          {recipe.platingTips.map((tip, idx) => (
+                            <li key={`${tip}-${idx}`}>- {tip}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              </article>
+            )}
+          </div>
+        </section>
       </div>
     </main>
   );
 }
 
-function CameraIcon({ className }: { className?: string }) {
+function MetaPill({ label }: { label: string }) {
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/>
-      <circle cx="12" cy="13" r="3"/>
-    </svg>
+    <span className="rounded-full border border-[#8f6640] bg-[#6d4828] px-2.5 py-1 text-[#fde8cf]">
+      {label}
+    </span>
   );
 }
