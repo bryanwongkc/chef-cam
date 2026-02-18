@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Ingredient = {
   item: string;
@@ -27,14 +27,21 @@ const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 export default function Home() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [cachedFile, setCachedFile] = useState<File | null>(null);
   const [cachedFromCamera, setCachedFromCamera] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const hasResult = useMemo(() => Boolean(recipe), [recipe]);
+
+  useEffect(() => {
+    return () => stopCamera();
+  }, []);
 
   async function compressImage(file: File, fromCamera: boolean): Promise<File> {
     return new Promise((resolve, reject) => {
@@ -120,6 +127,65 @@ export default function Home() {
     return compressed;
   }
 
+  async function openWebCamera() {
+    try {
+      setError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setCameraOpen(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch {
+      setError("Could not open camera. Please allow camera permission or use Upload Image.");
+    }
+  }
+
+  function stopCamera() {
+    if (streamRef.current) {
+      for (const track of streamRef.current.getTracks()) track.stop();
+      streamRef.current = null;
+    }
+    setCameraOpen(false);
+  }
+
+  async function captureFromWebCamera() {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    const targetWidth = 960;
+    const ratio = video.videoWidth > 0 ? video.videoHeight / video.videoWidth : 0.75;
+    canvas.width = targetWidth;
+    canvas.height = Math.round(targetWidth * ratio);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setError("Could not capture image.");
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.72)
+    );
+    if (!blob) {
+      setError("Could not capture image.");
+      return;
+    }
+    const file = new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" });
+    stopCamera();
+    try {
+      const prepared = await prepareImage(file, true);
+      await analyzeFile(prepared);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to process camera photo.";
+      setError(message);
+    }
+  }
+
   async function analyzeFile(file: File) {
     setLoading(true);
     setError(null);
@@ -199,17 +265,23 @@ export default function Home() {
             cooking instructions.
           </p>
           <p className="mt-2 max-w-2xl text-xs text-[#7a5634] md:text-sm">
-            On Samsung Chrome, Take Photo opens the camera directly. If memory
-            errors appear, use Upload Image from gallery instead.
+            Use Open Camera for low-memory capture on Samsung Chrome.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => cameraInputRef.current?.click()}
+              onClick={openWebCamera}
               className="rounded-xl bg-[#21160f] px-5 py-3 text-sm font-semibold text-[#fff6eb] transition hover:bg-[#322115]"
             >
-              Take Photo
+              Open Camera
+            </button>
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              className="rounded-xl border border-[#5a3b1e] bg-transparent px-5 py-3 text-sm font-semibold text-[#4c321a] transition hover:bg-[#fff1de]"
+            >
+              Take Photo (System)
             </button>
             <button
               type="button"
@@ -240,6 +312,28 @@ export default function Home() {
         {error && (
           <section className="mt-6 rounded-2xl border border-[#f2b5aa] bg-[#fff2ef] p-4 text-sm text-[#812719]">
             {error}
+          </section>
+        )}
+
+        {cameraOpen && (
+          <section className="mt-6 overflow-hidden rounded-3xl border border-[#e5dac9] bg-white p-4 shadow-sm">
+            <video ref={videoRef} className="aspect-video w-full rounded-2xl bg-black object-cover" playsInline muted />
+            <div className="mt-3 flex gap-3">
+              <button
+                type="button"
+                onClick={captureFromWebCamera}
+                className="rounded-xl bg-[#2d1e11] px-4 py-2.5 text-sm font-semibold text-[#fff3e5] transition hover:bg-[#432c18]"
+              >
+                Capture & Analyze
+              </button>
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="rounded-xl border border-[#d8c7b1] bg-[#fffaf2] px-4 py-2.5 text-sm font-medium text-[#5f4125] transition hover:bg-[#fff0da]"
+              >
+                Cancel
+              </button>
+            </div>
           </section>
         )}
 
