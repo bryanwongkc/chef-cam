@@ -21,7 +21,7 @@ type Recipe = {
   platingTips: string[];
 };
 
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 1_500_000;
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export default function Home() {
@@ -34,7 +34,7 @@ export default function Home() {
 
   const hasResult = useMemo(() => Boolean(recipe), [recipe]);
 
-  async function compressImage(file: File): Promise<File> {
+  async function compressImage(file: File, fromCamera: boolean): Promise<File> {
     return new Promise((resolve, reject) => {
       const image = new Image();
       const sourceUrl = URL.createObjectURL(file);
@@ -50,7 +50,7 @@ export default function Home() {
           return;
         }
 
-        const MAX_SIDE = 1280;
+        const MAX_SIDE = fromCamera ? 960 : 1280;
         let width = image.width;
         let height = image.height;
         const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
@@ -73,7 +73,7 @@ export default function Home() {
             resolve(finalFile);
           },
           "image/jpeg",
-          0.82
+          fromCamera ? 0.68 : 0.8
         );
       };
 
@@ -84,7 +84,7 @@ export default function Home() {
     });
   }
 
-  async function analyzeImage(file: File) {
+  async function analyzeImage(file: File, fromCamera: boolean) {
     setLoading(true);
     setError(null);
     setRecipe(null);
@@ -98,7 +98,7 @@ export default function Home() {
         throw new Error("Use JPG, PNG, or WebP. HEIC/HEIF is not supported.");
       }
 
-      const compressed = await compressImage(file);
+      const compressed = await compressImage(file, fromCamera);
       if (compressed.size > MAX_UPLOAD_BYTES) {
         throw new Error("Image is too large after compression. Try another photo.");
       }
@@ -133,10 +133,13 @@ export default function Home() {
     }
   }
 
-  async function onFileSelected(event: ChangeEvent<HTMLInputElement>) {
+  async function onFileSelected(
+    event: ChangeEvent<HTMLInputElement>,
+    fromCamera: boolean
+  ) {
     const file = event.target.files?.[0];
     if (!file) return;
-    await analyzeImage(file);
+    await analyzeImage(file, fromCamera);
     event.target.value = "";
   }
 
@@ -183,14 +186,14 @@ export default function Home() {
           accept="image/jpeg,image/png,image/webp"
           capture="environment"
           className="hidden"
-          onChange={onFileSelected}
+          onChange={(e) => onFileSelected(e, true)}
         />
         <input
           ref={uploadInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp"
           className="hidden"
-          onChange={onFileSelected}
+          onChange={(e) => onFileSelected(e, false)}
         />
 
         {error && (

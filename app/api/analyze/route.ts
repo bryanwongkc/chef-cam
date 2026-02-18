@@ -5,6 +5,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_SERVER_IMAGE_BYTES = 1_500_000;
 
 type RecipeApiResponse = {
   dishName: string;
@@ -87,6 +88,15 @@ export async function POST(req: NextRequest) {
     }
 
     const bytes = await file.arrayBuffer();
+    if (bytes.byteLength > MAX_SERVER_IMAGE_BYTES) {
+      return NextResponse.json(
+        {
+          error:
+            "Image is too large. Please retake the photo with better lighting or upload a smaller image.",
+        },
+        { status: 413 }
+      );
+    }
     const imageBase64 = Buffer.from(bytes).toString("base64");
 
     const prompt = [
