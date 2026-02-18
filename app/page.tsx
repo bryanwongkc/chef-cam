@@ -224,7 +224,7 @@ export default function Home() {
         <input
           ref={cameraInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept="image/*"
           className="hidden"
           onChange={(e) => onFileSelected(e, true)}
         />
