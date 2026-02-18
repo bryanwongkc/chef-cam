@@ -198,6 +198,10 @@ export default function Home() {
             dish and generate a structured ingredient list with professional
             cooking instructions.
           </p>
+          <p className="mt-2 max-w-2xl text-xs text-[#7a5634] md:text-sm">
+            If your phone throws low-memory errors, use Take Photo (Lite) and
+            choose Camera from the file picker.
+          </p>
 
           <div className="mt-7 flex flex-wrap gap-3">
             <button
@@ -205,7 +209,7 @@ export default function Home() {
               onClick={() => cameraInputRef.current?.click()}
               className="rounded-xl bg-[#21160f] px-5 py-3 text-sm font-semibold text-[#fff6eb] transition hover:bg-[#322115]"
             >
-              Take Photo
+              Take Photo (Lite)
             </button>
             <button
               type="button"
@@ -221,7 +225,6 @@ export default function Home() {
           ref={cameraInputRef}
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          capture="environment"
           className="hidden"
           onChange={(e) => onFileSelected(e, true)}
         />
