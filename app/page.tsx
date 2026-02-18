@@ -21,7 +21,7 @@ type Recipe = {
   platingTips: string[];
 };
 
-const MAX_UPLOAD_BYTES = 1_500_000;
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export default function Home() {
@@ -29,6 +29,7 @@ export default function Home() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [cachedFile, setCachedFile] = useState<File | null>(null);
+  const [cachedFromCamera, setCachedFromCamera] = useState(false);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -94,7 +95,17 @@ export default function Home() {
       throw new Error("Use JPG, PNG, or WebP. HEIC/HEIF is not supported.");
     }
 
-    const compressed = await compressImage(file, fromCamera);
+    if (fromCamera) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+      setCachedFile(file);
+      setCachedFromCamera(true);
+      setRecipe(null);
+      setError(null);
+      return file;
+    }
+
+    const compressed = await compressImage(file, false);
     if (compressed.size > MAX_UPLOAD_BYTES) {
       throw new Error("Image is too large after compression. Try another photo.");
     }
@@ -103,6 +114,7 @@ export default function Home() {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(nextPreview);
     setCachedFile(compressed);
+    setCachedFromCamera(false);
     setRecipe(null);
     setError(null);
     return compressed;
@@ -240,7 +252,9 @@ export default function Home() {
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[#6e5136]">
-                    Add a dish photo to generate recipe details.
+                    {cachedFile && cachedFromCamera
+                      ? "Camera photo cached. Tap 'Analyze Cached Photo' to upload."
+                      : "Add a dish photo to generate recipe details."}
                   </div>
                 )}
               </div>
@@ -251,9 +265,9 @@ export default function Home() {
                   onClick={() => cameraInputRef.current?.click()}
                   className="w-full rounded-xl border border-[#d8c7b1] bg-[#fffaf2] px-4 py-2.5 text-sm font-medium text-[#5f4125] transition hover:bg-[#fff0da]"
                 >
-                  Replace Photo
+                  {cachedFromCamera ? "Retake Photo" : "Replace Photo"}
                 </button>
-                {cachedFile && !loading && (
+                {cachedFile && cachedFromCamera && !loading && (
                   <button
                     type="button"
                     onClick={analyzeCachedImage}
