@@ -28,6 +28,7 @@ export default function Home() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [cachedFile, setCachedFile] = useState<File | null>(null);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -84,31 +85,37 @@ export default function Home() {
     });
   }
 
-  async function analyzeImage(file: File, fromCamera: boolean) {
+  async function prepareImage(file: File, fromCamera: boolean) {
+    if (!file.type.startsWith("image/")) {
+      throw new Error("Please choose a valid image file.");
+    }
+
+    if (!ALLOWED_MIME_TYPES.has(file.type.toLowerCase())) {
+      throw new Error("Use JPG, PNG, or WebP. HEIC/HEIF is not supported.");
+    }
+
+    const compressed = await compressImage(file, fromCamera);
+    if (compressed.size > MAX_UPLOAD_BYTES) {
+      throw new Error("Image is too large after compression. Try another photo.");
+    }
+
+    const nextPreview = URL.createObjectURL(compressed);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(nextPreview);
+    setCachedFile(compressed);
+    setRecipe(null);
+    setError(null);
+    return compressed;
+  }
+
+  async function analyzeFile(file: File) {
     setLoading(true);
     setError(null);
     setRecipe(null);
 
     try {
-      if (!file.type.startsWith("image/")) {
-        throw new Error("Please choose a valid image file.");
-      }
-
-      if (!ALLOWED_MIME_TYPES.has(file.type.toLowerCase())) {
-        throw new Error("Use JPG, PNG, or WebP. HEIC/HEIF is not supported.");
-      }
-
-      const compressed = await compressImage(file, fromCamera);
-      if (compressed.size > MAX_UPLOAD_BYTES) {
-        throw new Error("Image is too large after compression. Try another photo.");
-      }
-
-      const nextPreview = URL.createObjectURL(compressed);
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(nextPreview);
-
       const formData = new FormData();
-      formData.append("image", compressed, compressed.name);
+      formData.append("image", file, file.name);
 
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -133,13 +140,31 @@ export default function Home() {
     }
   }
 
+  async function analyzeCachedImage() {
+    if (!cachedFile) {
+      setError("Take or upload a photo first.");
+      return;
+    }
+    await analyzeFile(cachedFile);
+  }
+
   async function onFileSelected(
     event: ChangeEvent<HTMLInputElement>,
     fromCamera: boolean
   ) {
     const file = event.target.files?.[0];
     if (!file) return;
-    await analyzeImage(file, fromCamera);
+    try {
+      setError(null);
+      const prepared = await prepareImage(file, fromCamera);
+      if (!fromCamera) {
+        await analyzeFile(prepared);
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to process image.";
+      setError(message);
+    }
     event.target.value = "";
   }
 
@@ -228,9 +253,18 @@ export default function Home() {
                 >
                   Replace Photo
                 </button>
+                {cachedFile && !loading && (
+                  <button
+                    type="button"
+                    onClick={analyzeCachedImage}
+                    className="mt-3 w-full rounded-xl bg-[#2d1e11] px-4 py-2.5 text-sm font-semibold text-[#fff3e5] transition hover:bg-[#432c18]"
+                  >
+                    Analyze Cached Photo
+                  </button>
+                )}
                 {loading && (
                   <p className="mt-3 text-center text-sm font-medium text-[#8f6238]">
-                    Analyzing image and building recipe...
+                    Uploading cached photo and building recipe...
                   </p>
                 )}
               </div>
