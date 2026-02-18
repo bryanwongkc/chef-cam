@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef, useEffect, ChangeEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface RecipeData {
@@ -17,6 +17,15 @@ export default function Home() {
   const [data, setData] = useState<RecipeData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
+  }, []);
 
   // --- AGGRESSIVE COMPRESSION LOGIC ---
   const compressImage = async (file: File): Promise<Blob> => {
@@ -29,7 +38,7 @@ export default function Home() {
         URL.revokeObjectURL(url);
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-        if (!ctx) return reject("Canvas error");
+        if (!ctx) return reject(new Error("Canvas error"));
 
         // FORCE SMALL SIZE: Max 512px is plenty for AI
         const MAX_SIZE = 512;
@@ -60,14 +69,15 @@ export default function Home() {
               console.log(`Compressed size: ${blob.size / 1024}KB`);
               resolve(blob);
             } else {
-              reject("Compression failed");
+              reject(new Error("Compression failed"));
             }
           },
           "image/jpeg",
           0.5 
         );
       };
-      img.onerror = (err) => reject(err);
+      img.onerror = () =>
+        reject(new Error("This photo format is not supported by your browser."));
     });
   };
 
@@ -80,16 +90,33 @@ export default function Home() {
       setError(null);
       setData(null);
 
-      // 1. Compress massively before doing anything else
-      const compressedBlob = await compressImage(file);
-      
-      // 2. Set preview
-      const previewUrl = URL.createObjectURL(compressedBlob);
-      setImage(previewUrl);
+      const updatePreview = (blob: Blob) => {
+        const previewUrl = URL.createObjectURL(blob);
+        if (previewUrlRef.current) {
+          URL.revokeObjectURL(previewUrlRef.current);
+        }
+        previewUrlRef.current = previewUrl;
+        setImage(previewUrl);
+      };
 
-      // 3. Send to API
+      // Show immediate preview while compression/upload happens
+      updatePreview(file);
+
+      // Compress if possible, otherwise upload original file
+      let uploadFile: File = file;
+      try {
+        const compressedBlob = await compressImage(file);
+        uploadFile = new File([compressedBlob], `${Date.now()}-capture.jpg`, {
+          type: "image/jpeg",
+        });
+        updatePreview(uploadFile);
+      } catch (compressionError) {
+        console.warn("Compression failed, uploading original image.", compressionError);
+      }
+
+      // Send to API
       const formData = new FormData();
-      formData.append("image", compressedBlob);
+      formData.append("image", uploadFile, uploadFile.name);
 
       const response = await fetch("/api/analyze", {
         method: "POST",
@@ -97,22 +124,22 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        // If error, try to read the text response
         const errorText = await response.text();
         // Check specifically for payload error
         if (response.status === 413) {
           throw new Error("Image is still too large. Try a different one.");
         }
-        throw new Error(`Server error: ${response.status}`);
+        throw new Error(errorText || `Server error: ${response.status}`);
       }
 
       const result = await response.json();
       if (result.error) throw new Error(result.error);
 
       setData(result);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err.message || "Failed. Please try again.");
+      const message = err instanceof Error ? err.message : "Failed. Please try again.";
+      setError(message);
     } finally {
       setLoading(false);
     }
