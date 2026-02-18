@@ -36,12 +36,23 @@ export default function Home() {
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [loadingStartedAt, setLoadingStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const hasResult = useMemo(() => Boolean(recipe), [recipe]);
 
   useEffect(() => {
     return () => stopCamera();
   }, []);
+
+  useEffect(() => {
+    if (!loadingStartedAt || !loading) return;
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - loadingStartedAt) / 1000)));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [loading, loadingStartedAt]);
 
   async function compressImage(file: File, fromCamera: boolean): Promise<File> {
     return new Promise((resolve, reject) => {
@@ -59,7 +70,7 @@ export default function Home() {
           return;
         }
 
-        const MAX_SIDE = fromCamera ? 960 : 1280;
+        const MAX_SIDE = fromCamera ? 880 : 1024;
         let width = image.width;
         let height = image.height;
         const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
@@ -82,7 +93,7 @@ export default function Home() {
             resolve(finalFile);
           },
           "image/jpeg",
-          fromCamera ? 0.68 : 0.8
+          fromCamera ? 0.66 : 0.74
         );
       };
 
@@ -188,17 +199,24 @@ export default function Home() {
 
   async function analyzeFile(file: File) {
     setLoading(true);
+    setLoadingStartedAt(Date.now());
+    setElapsedSeconds(0);
+    setStatusMessage("Uploading image...");
     setError(null);
-    setRecipe(null);
 
     try {
       const formData = new FormData();
       formData.append("image", file, file.name);
 
+      const loadingTextTimer = window.setTimeout(() => {
+        setStatusMessage("Generating recipe with Gemini...");
+      }, 550);
+
       const response = await fetch("/api/analyze", {
         method: "POST",
         body: formData,
       });
+      window.clearTimeout(loadingTextTimer);
 
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -215,6 +233,8 @@ export default function Home() {
       setError(message);
     } finally {
       setLoading(false);
+      setLoadingStartedAt(null);
+      setStatusMessage("");
     }
   }
 
@@ -376,7 +396,7 @@ export default function Home() {
                 )}
                 {loading && (
                   <p className="mt-3 text-center text-sm font-medium text-[#8f6238]">
-                    Uploading cached photo and building recipe...
+                    {statusMessage} {elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}
                   </p>
                 )}
               </div>
@@ -384,6 +404,25 @@ export default function Home() {
           </div>
 
           <div className="md:col-span-3">
+            {loading && (
+              <div className="rounded-3xl border border-[#dbc7ad] bg-gradient-to-br from-[#fffdf7] to-[#f7eee0] p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#8b5f37]">
+                  Processing
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold text-[#2f2117]">
+                  Building your recipe...
+                </h2>
+                <p className="mt-2 text-sm text-[#6c4d33]">
+                  {statusMessage || "Working..."} {elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}
+                </p>
+                <div className="mt-4 space-y-3">
+                  <div className="h-4 w-2/3 animate-pulse rounded bg-[#ead8be]" />
+                  <div className="h-4 w-5/6 animate-pulse rounded bg-[#ead8be]" />
+                  <div className="h-4 w-1/2 animate-pulse rounded bg-[#ead8be]" />
+                </div>
+              </div>
+            )}
+
             {!hasResult && !loading && (
               <div className="rounded-3xl border border-dashed border-[#c8b196] bg-[#fffbf5] p-8 text-center text-[#6a4b2f]">
                 <h2 className="text-xl font-semibold">Recipe will appear here</h2>

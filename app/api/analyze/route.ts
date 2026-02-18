@@ -2,10 +2,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 30;
 
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_SERVER_IMAGE_BYTES = 1_500_000;
+const MAX_SERVER_IMAGE_BYTES = 2_000_000;
 
 type RecipeApiResponse = {
   dishName: string;
@@ -100,9 +100,9 @@ export async function POST(req: NextRequest) {
     const imageBase64 = Buffer.from(bytes).toString("base64");
 
     const prompt = [
-      "You are an expert chef and food stylist.",
-      "Analyze the image and produce a professional recipe.",
-      "Return ONLY valid JSON with this exact structure:",
+      "You are an expert chef.",
+      "Analyze the dish in the image and return concise professional recipe data.",
+      "Return ONLY valid JSON with this exact structure and no extra keys:",
       "{",
       '  "dishName": "string",',
       '  "shortDescription": "string (max 2 sentences)",',
@@ -115,14 +115,21 @@ export async function POST(req: NextRequest) {
       '  "ingredients": [',
       '    { "item": "string", "amount": "string" }',
       "  ],",
-      '  "instructions": ["string", "string"],',
-      '  "platingTips": ["string", "string"]',
+      '  "instructions": ["string (4-6 steps total)"],',
+      '  "platingTips": ["string (max 2 tips)"]',
       "}",
-      "No markdown. No explanation outside JSON.",
+      "Keep wording compact. No markdown. No explanation outside JSON.",
     ].join("\n");
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
+        temperature: 0.5,
+        maxOutputTokens: 700,
+      },
+    });
     const result = await model.generateContent([
       prompt,
       {
