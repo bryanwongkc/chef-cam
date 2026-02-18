@@ -199,8 +199,8 @@ export default function Home() {
             cooking instructions.
           </p>
           <p className="mt-2 max-w-2xl text-xs text-[#7a5634] md:text-sm">
-            If your phone throws low-memory errors, use Take Photo (Lite) and
-            choose Camera from the file picker.
+            On Samsung Chrome, Take Photo opens the camera directly. If memory
+            errors appear, use Upload Image from gallery instead.
           </p>
 
           <div className="mt-7 flex flex-wrap gap-3">
@@ -209,7 +209,7 @@ export default function Home() {
               onClick={() => cameraInputRef.current?.click()}
               className="rounded-xl bg-[#21160f] px-5 py-3 text-sm font-semibold text-[#fff6eb] transition hover:bg-[#322115]"
             >
-              Take Photo (Lite)
+              Take Photo
             </button>
             <button
               type="button"
@@ -225,6 +225,7 @@ export default function Home() {
           ref={cameraInputRef}
           type="file"
           accept="image/*"
+          capture="environment"
           className="hidden"
           onChange={(e) => onFileSelected(e, true)}
         />
