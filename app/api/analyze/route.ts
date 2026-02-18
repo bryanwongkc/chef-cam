@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function parseModelJson(rawText: string) {
   const cleaned = rawText.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -34,6 +35,12 @@ export async function POST(req: NextRequest) {
 
     if (!file) {
       return NextResponse.json({ error: "No image uploaded" }, { status: 400 });
+    }
+    if (!ALLOWED_MIME_TYPES.has((file.type || "").toLowerCase())) {
+      return NextResponse.json(
+        { error: "Unsupported image type. Use JPG, PNG, or WebP." },
+        { status: 400 }
+      );
     }
 
     const bytes = await file.arrayBuffer();

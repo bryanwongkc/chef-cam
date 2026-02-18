@@ -11,6 +11,9 @@ interface RecipeData {
   instructions: string[];
 }
 
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024; // 4MB safety limit for serverless body size
+const UNSUPPORTED_MIME_TYPES = new Set(["image/heic", "image/heif"]);
+
 export default function Home() {
   const [image, setImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -86,6 +89,15 @@ export default function Home() {
     if (!file) return;
 
     try {
+      if (!file.type.startsWith("image/")) {
+        throw new Error("Please upload a valid image.");
+      }
+      if (UNSUPPORTED_MIME_TYPES.has(file.type.toLowerCase())) {
+        throw new Error(
+          "HEIC/HEIF is not supported. Use JPG/PNG/WebP or set iPhone Camera Format to Most Compatible."
+        );
+      }
+
       setLoading(true);
       setError(null);
       setData(null);
@@ -111,7 +123,11 @@ export default function Home() {
         });
         updatePreview(uploadFile);
       } catch (compressionError) {
-        console.warn("Compression failed, uploading original image.", compressionError);
+        console.warn("Compression failed.", compressionError);
+      }
+
+      if (uploadFile.size > MAX_UPLOAD_BYTES) {
+        throw new Error("Image is too large. Use a smaller JPG/PNG/WebP image.");
       }
 
       // Send to API
@@ -248,7 +264,7 @@ export default function Home() {
           <label className="pointer-events-auto cursor-pointer group">
             <input 
               type="file" 
-              accept="image/*" 
+              accept="image/jpeg,image/png,image/webp" 
               capture="environment" 
               className="hidden" 
               onChange={handleImageUpload}
