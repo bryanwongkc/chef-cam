@@ -1,8 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
-// Ensure API key is defined
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 export const runtime = "nodejs";
 
 function parseModelJson(rawText: string) {
@@ -21,9 +19,12 @@ function parseModelJson(rawText: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.GEMINI_API_KEY) {
+    const apiKey =
+      process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+
+    if (!apiKey) {
       return NextResponse.json(
-        { error: "Server is missing GEMINI_API_KEY" },
+        { error: "Server is missing GEMINI_API_KEY (or GOOGLE_API_KEY)" },
         { status: 500 }
       );
     }
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(bytes);
 
     // Using Gemini 2.5 Flash
+    const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const prompt = `
