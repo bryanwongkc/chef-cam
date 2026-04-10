@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 type Ingredient = {
   item: string;
@@ -21,92 +21,143 @@ type Recipe = {
   platingTips: string[];
 };
 
-type SavedRecipe = {
-  id: string;
-  name: string;
-  createdAt: number;
-  recipe: Recipe;
-};
+type WorkflowStep = "idle" | "camera" | "captured" | "analyzing" | "ready";
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const DEVICE_ID_KEY = "chefcam.deviceId.v1";
 
 export default function Home() {
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const uploadInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [step, setStep] = useState<WorkflowStep>("idle");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [cachedFile, setCachedFile] = useState<File | null>(null);
-  const [cachedFromCamera, setCachedFromCamera] = useState(false);
-  const [cameraOpen, setCameraOpen] = useState(false);
-
+  const [capturedFile, setCapturedFile] = useState<File | null>(null);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
-  const [loadingStartedAt, setLoadingStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [activeTab, setActiveTab] = useState<"analyze" | "saved">("analyze");
-  const [savedRecipes, setSavedRecipes] = useState<SavedRecipe[]>([]);
-  const [selectedSavedRecipeId, setSelectedSavedRecipeId] = useState<string | null>(null);
-  const [deviceId, setDeviceId] = useState<string | null>(null);
-  const [savedLoading, setSavedLoading] = useState(false);
-
-  const hasResult = useMemo(() => Boolean(recipe), [recipe]);
 
   useEffect(() => {
-    return () => stopCamera();
-  }, []);
+    return () => {
+      stopCamera();
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   useEffect(() => {
-    const id = getOrCreateDeviceId();
-    setDeviceId(id);
-    fetchSavedRecipes(id);
-  }, []);
+    if (step !== "analyzing") return;
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [step]);
 
-  function getOrCreateDeviceId() {
-    const existing = localStorage.getItem(DEVICE_ID_KEY);
-    if (existing) return existing;
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    localStorage.setItem(DEVICE_ID_KEY, id);
-    return id;
-  }
-
-  async function fetchSavedRecipes(id: string) {
+  async function openCamera() {
     try {
-      setSavedLoading(true);
-      const response = await fetch(`/api/recipes?deviceId=${encodeURIComponent(id)}`, {
-        cache: "no-store",
+      setError(null);
+      setRecipe(null);
+      setStep("camera");
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
       });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to load saved recipes.");
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
       }
-      const items = Array.isArray(payload?.items) ? (payload.items as SavedRecipe[]) : [];
-      setSavedRecipes(items);
-      setSelectedSavedRecipeId((prev) => prev ?? (items[0]?.id || null));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load saved recipes.");
-    } finally {
-      setSavedLoading(false);
+    } catch {
+      setStep(capturedFile ? "captured" : "idle");
+      setError("Camera unavailable. Allow camera access or choose a photo from your device.");
     }
   }
 
-  useEffect(() => {
-    if (!loading || !loadingStartedAt) return;
-    const timer = window.setInterval(() => {
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - loadingStartedAt) / 1000)));
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [loading, loadingStartedAt]);
+  function stopCamera() {
+    if (streamRef.current) {
+      for (const track of streamRef.current.getTracks()) {
+        track.stop();
+      }
+      streamRef.current = null;
+    }
+  }
 
-  async function compressImage(file: File, fromCamera: boolean): Promise<File> {
+  async function capturePhoto() {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    const width = 1100;
+    const ratio = video.videoWidth > 0 ? video.videoHeight / video.videoWidth : 0.75;
+
+    canvas.width = width;
+    canvas.height = Math.round(width * ratio);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setError("Could not capture the photo.");
+      return;
+    }
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.72)
+    );
+    if (!blob) {
+      setError("Could not process the photo.");
+      return;
+    }
+
+    stopCamera();
+    const file = new File([blob], `chef-cam-${Date.now()}.jpg`, { type: "image/jpeg" });
+    setCapturedImage(file);
+    await analyzeFile(file);
+  }
+
+  async function handleFileSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      setError(null);
+      const prepared = await prepareImage(file);
+      setCapturedImage(prepared);
+      await analyzeFile(prepared);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not use that photo.");
+    }
+  }
+
+  function setCapturedImage(file: File) {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(URL.createObjectURL(file));
+    setCapturedFile(file);
+    setRecipe(null);
+    setElapsedSeconds(0);
+    setStep("captured");
+  }
+
+  async function prepareImage(file: File): Promise<File> {
+    if (!file.type.startsWith("image/")) {
+      throw new Error("Choose a valid image file.");
+    }
+    if (!ALLOWED_MIME_TYPES.has(file.type.toLowerCase())) {
+      throw new Error("Use JPG, PNG, or WebP. HEIC/HEIF is not supported.");
+    }
+
+    const compressed = await compressImage(file);
+    if (compressed.size > MAX_UPLOAD_BYTES) {
+      throw new Error("Image is too large after compression. Try another photo.");
+    }
+    return compressed;
+  }
+
+  async function compressImage(file: File): Promise<File> {
     return new Promise((resolve, reject) => {
       const image = new Image();
       const sourceUrl = URL.createObjectURL(file);
@@ -121,14 +172,11 @@ export default function Home() {
           return;
         }
 
-        const maxSide = fromCamera ? 880 : 1024;
+        const maxSide = 1100;
         const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-        const width = Math.round(image.width * scale);
-        const height = Math.round(image.height * scale);
-
-        canvas.width = width;
-        canvas.height = height;
-        ctx.drawImage(image, 0, 0, width, height);
+        canvas.width = Math.round(image.width * scale);
+        canvas.height = Math.round(image.height * scale);
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 
         canvas.toBlob(
           (blob) => {
@@ -136,10 +184,10 @@ export default function Home() {
               reject(new Error("Could not compress image."));
               return;
             }
-            resolve(new File([blob], `dish-${Date.now()}.jpg`, { type: "image/jpeg" }));
+            resolve(new File([blob], `chef-cam-${Date.now()}.jpg`, { type: "image/jpeg" }));
           },
           "image/jpeg",
-          fromCamera ? 0.66 : 0.74
+          0.74
         );
       };
 
@@ -150,609 +198,439 @@ export default function Home() {
     });
   }
 
-  async function prepareImage(file: File, fromCamera: boolean) {
-    if (!file.type.startsWith("image/")) {
-      throw new Error("Please choose a valid image file.");
-    }
-    if (!ALLOWED_MIME_TYPES.has(file.type.toLowerCase())) {
-      throw new Error("Use JPG, PNG, or WebP. HEIC/HEIF is not supported.");
-    }
-
-    if (fromCamera) {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPreviewUrl(null);
-      setCachedFile(file);
-      setCachedFromCamera(true);
-      setRecipe(null);
-      setError(null);
-      return file;
-    }
-
-    const compressed = await compressImage(file, false);
-    if (compressed.size > MAX_UPLOAD_BYTES) {
-      throw new Error("Image is too large after compression. Try another photo.");
-    }
-
-    const nextPreview = URL.createObjectURL(compressed);
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(nextPreview);
-    setCachedFile(compressed);
-    setCachedFromCamera(false);
-    setRecipe(null);
-    setError(null);
-    return compressed;
-  }
-
-  async function openWebCamera() {
-    try {
-      setError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
-      streamRef.current = stream;
-      setCameraOpen(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-    } catch {
-      setError("Could not open camera. Please allow camera permission or use Upload.");
-    }
-  }
-
-  function stopCamera() {
-    if (streamRef.current) {
-      for (const track of streamRef.current.getTracks()) track.stop();
-      streamRef.current = null;
-    }
-    setCameraOpen(false);
-  }
-
-  async function captureFromWebCamera() {
-    if (!videoRef.current) return;
-    const video = videoRef.current;
-    const canvas = document.createElement("canvas");
-    const width = 960;
-    const ratio = video.videoWidth > 0 ? video.videoHeight / video.videoWidth : 0.75;
-    canvas.width = width;
-    canvas.height = Math.round(width * ratio);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      setError("Could not capture image.");
-      return;
-    }
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob((b) => resolve(b), "image/jpeg", 0.72)
-    );
-    if (!blob) {
-      setError("Could not capture image.");
-      return;
-    }
-
-    const file = new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" });
-    stopCamera();
-    try {
-      const prepared = await prepareImage(file, true);
-      await analyzeFile(prepared);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to process camera photo.");
-    }
-  }
-
   async function analyzeFile(file: File) {
-    setLoading(true);
-    setLoadingStartedAt(Date.now());
+    setStep("analyzing");
     setElapsedSeconds(0);
-    setStatusMessage("Uploading image...");
+    setStatusMessage("Uploading photo");
     setError(null);
 
+    const timer = window.setTimeout(() => setStatusMessage("Creating recipe"), 600);
     try {
       const formData = new FormData();
       formData.append("image", file, file.name);
-
-      const loadingTextTimer = window.setTimeout(() => {
-        setStatusMessage("Generating recipe...");
-      }, 450);
 
       const response = await fetch("/api/analyze", {
         method: "POST",
         body: formData,
       });
-      window.clearTimeout(loadingTextTimer);
-
       const payload = await response.json().catch(() => null);
+
       if (!response.ok) {
-        throw new Error(payload?.error || "Request failed. Please try again.");
+        throw new Error(payload?.error || "Request failed. Try again.");
       }
       if (!payload) {
         throw new Error("No recipe data received.");
       }
+
       setRecipe(payload as Recipe);
+      setStep("ready");
     } catch (err: unknown) {
+      setStep("captured");
       setError(err instanceof Error ? err.message : "Failed to generate recipe.");
     } finally {
-      setLoading(false);
-      setLoadingStartedAt(null);
+      window.clearTimeout(timer);
       setStatusMessage("");
     }
   }
 
-  async function analyzeCachedImage() {
-    if (!cachedFile) {
-      setError("Take or upload a photo first.");
-      return;
-    }
-    await analyzeFile(cachedFile);
+  function retakePhoto() {
+    setRecipe(null);
+    setError(null);
+    void openCamera();
   }
 
-  async function saveCurrentRecipe() {
-    if (!recipe || !deviceId) return;
-    try {
-      const response = await fetch("/api/recipes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deviceId,
-          name: recipe.dishName,
-          recipe,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to save recipe.");
-      }
-      await fetchSavedRecipes(deviceId);
-      if (payload?.id) setSelectedSavedRecipeId(payload.id as string);
-      setActiveTab("saved");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save recipe.");
-    }
+  function saveAsPdf() {
+    if (!recipe) return;
+    window.print();
   }
 
-  async function renameSavedRecipe(id: string) {
-    if (!deviceId) return;
-    const target = savedRecipes.find((x) => x.id === id);
-    if (!target) return;
-    const next = window.prompt("Rename recipe", target.name)?.trim();
-    if (!next) return;
-    try {
-      const response = await fetch("/api/recipes", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, deviceId, name: next }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to rename recipe.");
-      }
-      setSavedRecipes((prev) => prev.map((x) => (x.id === id ? { ...x, name: next } : x)));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to rename recipe.");
-    }
+  function shareOnWhatsApp() {
+    if (!recipe) return;
+    const text = formatRecipeForSharing(recipe);
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
   }
 
-  async function removeSavedRecipe(id: string) {
-    if (!deviceId) return;
-    const ok = window.confirm("Remove this saved recipe?");
-    if (!ok) return;
-    try {
-      const response = await fetch(
-        `/api/recipes?id=${encodeURIComponent(id)}&deviceId=${encodeURIComponent(deviceId)}`,
-        { method: "DELETE" }
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to remove recipe.");
-      }
-      const next = savedRecipes.filter((x) => x.id !== id);
-      setSavedRecipes(next);
-      setSelectedSavedRecipeId((prev) => {
-        if (prev !== id) return prev;
-        return next[0]?.id || null;
-      });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to remove recipe.");
-    }
-  }
-
-  async function onFileSelected(event: ChangeEvent<HTMLInputElement>, fromCamera: boolean) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      setError(null);
-      const prepared = await prepareImage(file, fromCamera);
-      if (!fromCamera) await analyzeFile(prepared);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to process image.");
-    }
-    event.target.value = "";
-  }
-
-  const selectedSavedRecipe = useMemo(() => {
-    if (!selectedSavedRecipeId) return null;
-    return savedRecipes.find((x) => x.id === selectedSavedRecipeId) || null;
-  }, [savedRecipes, selectedSavedRecipeId]);
+  const canAnalyzeAgain = Boolean(capturedFile) && step !== "analyzing";
 
   return (
-    <main className="min-h-screen bg-[#f8f8f6] text-[#181817]">
-      <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
-        <section className="border-b border-[#dedbd2] pb-6 md:pb-8">
-          <p className="text-xs font-semibold uppercase text-[#6b6760]">
-            ChefCam
-          </p>
-          <h1 className="mt-3 text-3xl font-semibold md:text-5xl">
-            Photo to Recipe
-          </h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#5a5751] md:text-base">
-            Minimal, fast, and camera-friendly. Capture a dish or upload an image to generate
-            a structured recipe with Gemini 2.5 Flash.
-          </p>
-
-          <div className="mt-6 flex flex-wrap gap-2">
-            <ActionButton onClick={openWebCamera} label="Open Camera" primary />
-            <ActionButton
-              onClick={() => cameraInputRef.current?.click()}
-              label="Take Photo (System)"
-            />
-            <ActionButton onClick={() => uploadInputRef.current?.click()} label="Upload" />
+    <main className="min-h-screen bg-[#f7f7f7] text-[#171717]">
+      <div className="no-print mx-auto grid min-h-screen max-w-7xl gap-8 px-4 py-6 md:grid-cols-[0.85fr_1.15fr] md:px-8 lg:px-10">
+        <section className="flex flex-col justify-between rounded-lg border border-[#dedede] bg-white p-5 md:p-7">
+          <div>
+            <p className="text-xs font-semibold uppercase text-[#666666]">ChefCam</p>
+            <h1 className="mt-4 max-w-md text-4xl font-semibold leading-tight md:text-5xl">
+              Capture a dish. Get a recipe.
+            </h1>
+            <p className="mt-4 max-w-md text-sm leading-6 text-[#555555]">
+              Open the camera, take one clear photo, and Gemini will turn it into a practical recipe.
+            </p>
           </div>
 
-          <div className="mt-6 inline-flex rounded-lg border border-[#d8d5cc] bg-[#eeece6] p-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab("analyze")}
-              className={
-                activeTab === "analyze"
-                  ? "rounded-md bg-white px-3 py-1.5 text-sm font-medium text-[#181817] shadow-sm"
-                  : "rounded-md px-3 py-1.5 text-sm font-medium text-[#6b6760] transition hover:text-[#181817]"
-              }
-            >
-              Analyze
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("saved")}
-              className={
-                activeTab === "saved"
-                  ? "rounded-md bg-white px-3 py-1.5 text-sm font-medium text-[#181817] shadow-sm"
-                  : "rounded-md px-3 py-1.5 text-sm font-medium text-[#6b6760] transition hover:text-[#181817]"
-              }
-            >
-              Saved Recipes
-            </button>
+          <div className="mt-8 space-y-4">
+            <WorkflowStatus step={step} />
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={openCamera} primary disabled={step === "analyzing"}>
+                Open Camera
+              </Button>
+              <Button onClick={() => fileInputRef.current?.click()} disabled={step === "analyzing"}>
+                Choose Photo
+              </Button>
+              {canAnalyzeAgain && (
+                <Button onClick={() => capturedFile && analyzeFile(capturedFile)}>
+                  Analyze Again
+                </Button>
+              )}
+            </div>
           </div>
         </section>
 
-        <input
-          ref={cameraInputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => onFileSelected(e, true)}
-        />
-        <input
-          ref={uploadInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={(e) => onFileSelected(e, false)}
-        />
-
-        {error && (
-          <section className="mt-4 rounded-lg border border-[#e6b9b4] bg-[#fff7f5] px-4 py-3 text-sm text-[#9b2c20]">
-            {error}
-          </section>
-        )}
-
-        {activeTab === "analyze" && cameraOpen && (
-          <section className="mt-5 rounded-lg border border-[#dedbd2] bg-white p-3">
-            <video
-              ref={videoRef}
-              className="aspect-video w-full rounded-md bg-black object-cover"
-              playsInline
-              muted
-            />
-            <div className="mt-3 flex gap-2">
-              <ActionButton onClick={captureFromWebCamera} label="Capture & Analyze" primary />
-              <ActionButton onClick={stopCamera} label="Cancel" />
+        <section className="space-y-5">
+          {error && (
+            <div className="rounded-lg border border-[#cfcfcf] bg-[#f2f2f2] px-4 py-3 text-sm text-[#333333]">
+              {error}
             </div>
-          </section>
-        )}
+          )}
 
-        {activeTab === "analyze" && (
-          <section className="mt-6 grid gap-5 md:grid-cols-5">
-          <div className="md:col-span-2">
-            <div className="rounded-lg border border-[#dedbd2] bg-white p-3">
-              <div className="aspect-[4/3] overflow-hidden rounded-md bg-[#eeece6]">
-                {previewUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={previewUrl} alt="Dish preview" className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[#6b6760]">
-                    {cachedFile && cachedFromCamera
-                      ? "Camera photo cached. Tap Analyze."
-                      : "Add a dish photo to get started."}
-                  </div>
-                )}
-              </div>
-              <div className="mt-3 grid grid-cols-1 gap-2">
-                <ActionButton
-                  onClick={() => cameraInputRef.current?.click()}
-                  label={cachedFromCamera ? "Retake Photo" : "Replace Photo"}
-                />
-                {cachedFile && cachedFromCamera && !loading && (
-                  <ActionButton onClick={analyzeCachedImage} label="Analyze Cached Photo" primary />
-                )}
-                {loading && (
-                  <p className="text-center text-xs text-[#6b6760]">
-                    {statusMessage} {elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="md:col-span-3">
-            {loading && (
-              <div className="rounded-lg border border-[#dedbd2] bg-white p-6">
-                <p className="text-xs font-semibold uppercase text-[#777269]">
-                  Processing
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold">
-                  Building your recipe...
-                </h2>
-                <p className="mt-2 text-sm text-[#6b6760]">
-                  {statusMessage} {elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}
-                </p>
-                <div className="mt-4 space-y-2">
-                  <div className="h-2 w-2/3 animate-pulse rounded-full bg-[#e6e1d8]" />
-                  <div className="h-2 w-5/6 animate-pulse rounded-full bg-[#e6e1d8]" />
-                  <div className="h-2 w-1/2 animate-pulse rounded-full bg-[#e6e1d8]" />
-                </div>
-              </div>
-            )}
-
-            {!hasResult && !loading && (
-              <div className="rounded-lg border border-dashed border-[#d8d5cc] bg-white p-8 text-center text-[#6b6760]">
-                <h2 className="text-xl font-semibold text-[#181817]">Recipe will appear here</h2>
-                <p className="mt-2 text-sm">Use a clear photo for faster, more accurate results.</p>
-              </div>
-            )}
-
-            {hasResult && recipe && (
-              <article className="overflow-hidden rounded-lg border border-[#dedbd2] bg-white">
-                <div className="border-b border-[#e9e5dc] px-6 py-5 md:px-7">
-                  <p className="text-xs font-semibold uppercase text-[#777269]">
-                    Generated Recipe
-                  </p>
-                  <h2 className="mt-1 text-2xl font-semibold md:text-3xl">
-                    {recipe.dishName}
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-[#5a5751]">{recipe.shortDescription}</p>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <MetaChip label={recipe.cuisine} />
-                    <MetaChip label={recipe.difficulty} />
-                    <MetaChip label={`Serves ${recipe.servings}`} />
-                    <MetaChip label={`Prep ${recipe.prepTime}`} />
-                    <MetaChip label={`Cook ${recipe.cookTime}`} />
-                    <MetaChip label={recipe.caloriesPerServing} />
-                  </div>
-                  <div className="mt-4">
-                    <ActionButton onClick={saveCurrentRecipe} label="Save Recipe" />
-                  </div>
-                </div>
-
-                <div className="grid gap-0 md:grid-cols-5">
-                  <section className="border-b border-[#e9e5dc] px-6 py-5 md:col-span-2 md:border-b-0 md:border-r">
-                    <h3 className="text-sm font-semibold text-[#181817]">Ingredients</h3>
-                    <ul className="mt-3 space-y-2.5">
-                      {recipe.ingredients.map((ing, idx) => (
-                        <li key={`${ing.item}-${idx}`} className="text-sm">
-                          <p className="font-medium text-[#181817]">{ing.item}</p>
-                          <p className="text-[#6b6760]">{ing.amount}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-
-                  <section className="px-6 py-5 md:col-span-3">
-                    <h3 className="text-sm font-semibold text-[#181817]">Method</h3>
-                    <ol className="mt-3 space-y-3">
-                      {recipe.instructions.map((step, idx) => (
-                        <li key={`${step}-${idx}`} className="flex gap-3 text-sm">
-                          <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#181817] text-[11px] font-semibold text-white">
-                            {idx + 1}
-                          </span>
-                          <span className="leading-6 text-[#3b3832]">{step}</span>
-                        </li>
-                      ))}
-                    </ol>
-
-                    {recipe.platingTips?.length > 0 && (
-                      <div className="mt-5 rounded-lg border border-[#e9e5dc] bg-[#fbfaf7] p-4">
-                        <h4 className="text-sm font-semibold text-[#181817]">Plating Tips</h4>
-                        <ul className="mt-2 space-y-1.5 text-sm leading-6 text-[#5a5751]">
-                          {recipe.platingTips.map((tip, idx) => (
-                            <li key={`${tip}-${idx}`}>- {tip}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </section>
-                </div>
-              </article>
+          <div className="overflow-hidden rounded-lg border border-[#dedede] bg-white">
+            {step === "camera" ? (
+              <CameraPanel videoRef={videoRef} onCapture={capturePhoto} onCancel={() => {
+                stopCamera();
+                setStep(capturedFile ? "captured" : "idle");
+              }} />
+            ) : (
+              <PreviewPanel previewUrl={previewUrl} step={step} elapsedSeconds={elapsedSeconds} statusMessage={statusMessage} />
             )}
           </div>
-          </section>
-        )}
 
-        {activeTab === "saved" && (
-          <section className="mt-6 grid gap-5 md:grid-cols-5">
-            <div className="md:col-span-2">
-              <div className="rounded-lg border border-[#dedbd2] bg-white p-3">
-                <h2 className="px-2 pb-2 text-sm font-semibold text-[#181817]">
-                  Saved Recipes
-                </h2>
-                {savedLoading && (
-                  <p className="px-2 pb-2 text-xs text-[#6b6760]">Loading...</p>
-                )}
-                {savedRecipes.length === 0 && (
-                  <p className="px-2 py-8 text-sm text-[#6b6760]">
-                    No saved recipes yet.
-                  </p>
-                )}
-                <div className="space-y-2">
-                  {savedRecipes.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setSelectedSavedRecipeId(item.id)}
-                      className={
-                        selectedSavedRecipeId === item.id
-                          ? "w-full rounded-md border border-[#d8d5cc] bg-[#f3f1eb] px-3 py-2 text-left"
-                          : "w-full rounded-md border border-transparent px-3 py-2 text-left transition hover:bg-[#f3f1eb]"
-                      }
-                    >
-                      <p className="text-sm font-medium text-[#181817]">{item.name}</p>
-                      <p className="text-xs text-[#6b6760]">
-                        {new Date(item.createdAt).toLocaleString()}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="md:col-span-3">
-              {!selectedSavedRecipe && (
-                <div className="rounded-lg border border-dashed border-[#d8d5cc] bg-white p-8 text-center text-[#6b6760]">
-                  <h2 className="text-xl font-semibold text-[#181817]">
-                    Select a saved recipe
-                  </h2>
-                  <p className="mt-2 text-sm">
-                    Rename or remove recipes from your saved list.
-                  </p>
-                </div>
-              )}
-
-              {selectedSavedRecipe && (
-                <article className="overflow-hidden rounded-lg border border-[#dedbd2] bg-white">
-                  <div className="border-b border-[#e9e5dc] px-6 py-5 md:px-7">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-semibold uppercase text-[#777269]">
-                        Saved Recipe
-                      </p>
-                      <div className="flex gap-2">
-                        <ActionButton
-                          onClick={() => renameSavedRecipe(selectedSavedRecipe.id)}
-                          label="Rename"
-                        />
-                        <ActionButton
-                          onClick={() => removeSavedRecipe(selectedSavedRecipe.id)}
-                          label="Remove"
-                        />
-                      </div>
-                    </div>
-                    <h2 className="mt-1 text-2xl font-semibold md:text-3xl">
-                      {selectedSavedRecipe.name}
-                    </h2>
-                    <p className="mt-2 text-sm leading-6 text-[#5a5751]">
-                      {selectedSavedRecipe.recipe.shortDescription}
-                    </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <MetaChip label={selectedSavedRecipe.recipe.cuisine} />
-                      <MetaChip label={selectedSavedRecipe.recipe.difficulty} />
-                      <MetaChip label={`Serves ${selectedSavedRecipe.recipe.servings}`} />
-                      <MetaChip label={`Prep ${selectedSavedRecipe.recipe.prepTime}`} />
-                      <MetaChip label={`Cook ${selectedSavedRecipe.recipe.cookTime}`} />
-                      <MetaChip label={selectedSavedRecipe.recipe.caloriesPerServing} />
-                    </div>
-                  </div>
-
-                  <div className="grid gap-0 md:grid-cols-5">
-                    <section className="border-b border-[#e9e5dc] px-6 py-5 md:col-span-2 md:border-b-0 md:border-r">
-                      <h3 className="text-sm font-semibold text-[#181817]">Ingredients</h3>
-                      <ul className="mt-3 space-y-2.5">
-                        {selectedSavedRecipe.recipe.ingredients.map((ing, idx) => (
-                          <li key={`${ing.item}-${idx}`} className="text-sm">
-                            <p className="font-medium text-[#181817]">{ing.item}</p>
-                            <p className="text-[#6b6760]">{ing.amount}</p>
-                          </li>
-                        ))}
-                      </ul>
-                    </section>
-
-                    <section className="px-6 py-5 md:col-span-3">
-                      <h3 className="text-sm font-semibold text-[#181817]">Method</h3>
-                      <ol className="mt-3 space-y-3">
-                        {selectedSavedRecipe.recipe.instructions.map((step, idx) => (
-                          <li key={`${step}-${idx}`} className="flex gap-3 text-sm">
-                            <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-[#181817] text-[11px] font-semibold text-white">
-                              {idx + 1}
-                            </span>
-                            <span className="leading-6 text-[#3b3832]">{step}</span>
-                          </li>
-                        ))}
-                      </ol>
-
-                      {selectedSavedRecipe.recipe.platingTips?.length > 0 && (
-                        <div className="mt-5 rounded-lg border border-[#e9e5dc] bg-[#fbfaf7] p-4">
-                          <h4 className="text-sm font-semibold text-[#181817]">Plating Tips</h4>
-                          <ul className="mt-2 space-y-1.5 text-sm leading-6 text-[#5a5751]">
-                            {selectedSavedRecipe.recipe.platingTips.map((tip, idx) => (
-                              <li key={`${tip}-${idx}`}>- {tip}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </section>
-                  </div>
-                </article>
-              )}
-            </div>
-          </section>
-        )}
+          {recipe ? (
+            <RecipeCard recipe={recipe} onRetake={retakePhoto} onPdf={saveAsPdf} onWhatsApp={shareOnWhatsApp} />
+          ) : (
+            <EmptyRecipeState step={step} elapsedSeconds={elapsedSeconds} statusMessage={statusMessage} />
+          )}
+        </section>
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleFileSelected}
+      />
+
+      {recipe && <PrintableRecipe recipe={recipe} />}
     </main>
   );
 }
 
-function ActionButton({
-  onClick,
-  label,
-  primary = false,
+function CameraPanel({
+  videoRef,
+  onCapture,
+  onCancel,
 }: {
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  onCapture: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div>
+      <video ref={videoRef} className="aspect-video w-full bg-black object-cover" playsInline muted />
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e5e5e5] p-4">
+        <p className="text-sm text-[#555555]">Frame the dish clearly, then capture.</p>
+        <div className="flex gap-2">
+          <Button onClick={onCancel}>Cancel</Button>
+          <Button onClick={onCapture} primary>
+            Capture
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewPanel({
+  previewUrl,
+  step,
+  elapsedSeconds,
+  statusMessage,
+}: {
+  previewUrl: string | null;
+  step: WorkflowStep;
+  elapsedSeconds: number;
+  statusMessage: string;
+}) {
+  return (
+    <div className="relative aspect-[4/3] bg-[#eeeeee]">
+      {previewUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={previewUrl} alt="Captured dish" className="h-full w-full object-cover" />
+      ) : (
+        <div className="flex h-full items-center justify-center px-8 text-center">
+          <div>
+            <p className="text-lg font-semibold text-[#171717]">No photo yet</p>
+            <p className="mt-2 max-w-sm text-sm leading-6 text-[#666666]">
+              Start with the camera. A clear overhead or angled photo works best.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {step === "analyzing" && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#171717]/65 px-6 text-center text-white">
+          <div>
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            <p className="mt-4 text-sm font-medium">
+              {statusMessage || "Analyzing"} {elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmptyRecipeState({
+  step,
+  elapsedSeconds,
+  statusMessage,
+}: {
+  step: WorkflowStep;
+  elapsedSeconds: number;
+  statusMessage: string;
+}) {
+  const message =
+    step === "analyzing"
+      ? `${statusMessage || "Analyzing"} ${elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}`
+      : "Your generated recipe will appear here after capture.";
+
+  return (
+    <section className="rounded-lg border border-dashed border-[#d6d6d6] bg-white p-8 text-center">
+      <p className="text-lg font-semibold text-[#171717]">
+        {step === "analyzing" ? "Recipe in progress" : "Ready when you are"}
+      </p>
+      <p className="mt-2 text-sm text-[#666666]">{message}</p>
+    </section>
+  );
+}
+
+function RecipeCard({
+  recipe,
+  onRetake,
+  onPdf,
+  onWhatsApp,
+}: {
+  recipe: Recipe;
+  onRetake: () => void;
+  onPdf: () => void;
+  onWhatsApp: () => void;
+}) {
+  return (
+    <article className="rounded-lg border border-[#dedede] bg-white">
+      <div className="border-b border-[#e5e5e5] p-5 md:p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase text-[#777777]">Generated Recipe</p>
+            <h2 className="mt-2 text-3xl font-semibold">{recipe.dishName}</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#555555]">
+              {recipe.shortDescription}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onPdf}>Save as PDF</Button>
+            <Button onClick={onWhatsApp} primary>
+              Share WhatsApp
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Meta label={recipe.cuisine} />
+          <Meta label={recipe.difficulty} />
+          <Meta label={`Serves ${recipe.servings}`} />
+          <Meta label={`Prep ${recipe.prepTime}`} />
+          <Meta label={`Cook ${recipe.cookTime}`} />
+          <Meta label={recipe.caloriesPerServing} />
+        </div>
+      </div>
+
+      <div className="grid md:grid-cols-[0.8fr_1.2fr]">
+        <section className="border-b border-[#e5e5e5] p-5 md:border-b-0 md:border-r md:p-6">
+          <h3 className="text-sm font-semibold">Ingredients</h3>
+          <ul className="mt-4 space-y-3">
+            {recipe.ingredients.map((ingredient, index) => (
+              <li key={`${ingredient.item}-${index}`} className="text-sm">
+                <p className="font-medium">{ingredient.item}</p>
+                <p className="text-[#666666]">{ingredient.amount}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="p-5 md:p-6">
+          <h3 className="text-sm font-semibold">Method</h3>
+          <ol className="mt-4 space-y-4">
+            {recipe.instructions.map((instruction, index) => (
+              <li key={`${instruction}-${index}`} className="flex gap-3 text-sm leading-6">
+                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[#171717] text-xs font-semibold text-white">
+                  {index + 1}
+                </span>
+                <span>{instruction}</span>
+              </li>
+            ))}
+          </ol>
+
+          {recipe.platingTips.length > 0 && (
+            <div className="mt-6 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-4">
+              <h4 className="text-sm font-semibold">Plating Tips</h4>
+              <ul className="mt-2 space-y-2 text-sm leading-6 text-[#555555]">
+                {recipe.platingTips.map((tip, index) => (
+                  <li key={`${tip}-${index}`}>- {tip}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-6">
+            <Button onClick={onRetake}>Retake Photo</Button>
+          </div>
+        </section>
+      </div>
+    </article>
+  );
+}
+
+function PrintableRecipe({ recipe }: { recipe: Recipe }) {
+  return (
+    <section className="print-sheet hidden bg-white p-8 text-[#171717]">
+      <p className="text-xs font-semibold uppercase">ChefCam Recipe</p>
+      <h1 className="mt-3 text-3xl font-semibold">{recipe.dishName}</h1>
+      <p className="mt-2 text-sm">{recipe.shortDescription}</p>
+
+      <div className="mt-5 grid grid-cols-3 gap-2 text-xs">
+        <p>Cuisine: {recipe.cuisine}</p>
+        <p>Difficulty: {recipe.difficulty}</p>
+        <p>Servings: {recipe.servings}</p>
+        <p>Prep: {recipe.prepTime}</p>
+        <p>Cook: {recipe.cookTime}</p>
+        <p>{recipe.caloriesPerServing}</p>
+      </div>
+
+      <h2 className="mt-7 text-lg font-semibold">Ingredients</h2>
+      <ul className="mt-3 space-y-1 text-sm">
+        {recipe.ingredients.map((ingredient, index) => (
+          <li key={`${ingredient.item}-print-${index}`}>
+            {ingredient.amount} {ingredient.item}
+          </li>
+        ))}
+      </ul>
+
+      <h2 className="mt-7 text-lg font-semibold">Method</h2>
+      <ol className="mt-3 space-y-2 text-sm">
+        {recipe.instructions.map((instruction, index) => (
+          <li key={`${instruction}-print-${index}`}>
+            {index + 1}. {instruction}
+          </li>
+        ))}
+      </ol>
+
+      {recipe.platingTips.length > 0 && (
+        <>
+          <h2 className="mt-7 text-lg font-semibold">Plating Tips</h2>
+          <ul className="mt-3 space-y-1 text-sm">
+            {recipe.platingTips.map((tip, index) => (
+              <li key={`${tip}-print-${index}`}>- {tip}</li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function WorkflowStatus({ step }: { step: WorkflowStep }) {
+  const items = [
+    { id: "camera", label: "Open camera" },
+    { id: "analyzing", label: "Analyze" },
+    { id: "ready", label: "Export" },
+  ];
+  const activeIndex = step === "idle" || step === "camera" || step === "captured" ? 0 : step === "analyzing" ? 1 : 2;
+
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {items.map((item, index) => (
+        <div
+          key={item.id}
+          className={
+            index <= activeIndex
+              ? "rounded-lg border border-[#171717] bg-[#171717] px-3 py-2 text-xs font-medium text-white"
+              : "rounded-lg border border-[#dedede] bg-[#f7f7f7] px-3 py-2 text-xs font-medium text-[#666666]"
+          }
+        >
+          {item.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Button({
+  children,
+  onClick,
+  primary = false,
+  disabled = false,
+}: {
+  children: React.ReactNode;
   onClick: () => void;
-  label: string;
   primary?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={
         primary
-          ? "rounded-lg bg-[#181817] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#2f2c26]"
-          : "rounded-lg border border-[#d8d5cc] bg-white px-4 py-2.5 text-sm font-medium text-[#181817] transition hover:bg-[#f3f1eb]"
+          ? "rounded-lg bg-[#171717] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#303030] disabled:cursor-not-allowed disabled:bg-[#a6a6a6]"
+          : "rounded-lg border border-[#d6d6d6] bg-white px-4 py-2.5 text-sm font-medium text-[#171717] transition hover:bg-[#f2f2f2] disabled:cursor-not-allowed disabled:text-[#a6a6a6]"
       }
     >
-      {label}
+      {children}
     </button>
   );
 }
 
-function MetaChip({ label }: { label: string }) {
+function Meta({ label }: { label: string }) {
   return (
-    <span className="rounded-md border border-[#d8d5cc] bg-[#f3f1eb] px-2.5 py-1 text-xs font-medium text-[#3b3832]">
+    <span className="rounded-md border border-[#d6d6d6] bg-[#f2f2f2] px-2.5 py-1 text-xs font-medium text-[#333333]">
       {label}
     </span>
   );
+}
+
+function formatRecipeForSharing(recipe: Recipe) {
+  const ingredients = recipe.ingredients
+    .map((ingredient) => `- ${ingredient.amount} ${ingredient.item}`)
+    .join("\n");
+  const instructions = recipe.instructions
+    .map((instruction, index) => `${index + 1}. ${instruction}`)
+    .join("\n");
+  const platingTips = recipe.platingTips.length
+    ? `\n\nPlating tips:\n${recipe.platingTips.map((tip) => `- ${tip}`).join("\n")}`
+    : "";
+
+  return [
+    `${recipe.dishName}`,
+    recipe.shortDescription,
+    "",
+    `${recipe.cuisine} | ${recipe.difficulty} | Serves ${recipe.servings}`,
+    `Prep ${recipe.prepTime} | Cook ${recipe.cookTime} | ${recipe.caloriesPerServing}`,
+    "",
+    "Ingredients:",
+    ingredients,
+    "",
+    "Method:",
+    instructions,
+    platingTips,
+  ].join("\n");
 }
