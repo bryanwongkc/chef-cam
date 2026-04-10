@@ -247,16 +247,24 @@ export default function Home() {
   function saveAsFlashCardJpg() {
     if (!recipe) return;
     const dataUrl = createFlashCardJpg(recipe);
-    const link = document.createElement("a");
-    link.href = dataUrl;
-    link.download = `${slugify(recipe.dishName)}-chef-card.jpg`;
-    link.click();
+    downloadDataUrl(dataUrl, getFlashCardFileName(recipe));
   }
 
-  function shareOnWhatsApp() {
+  async function shareOnWhatsApp() {
     if (!recipe) return;
-    const text = formatRecipeForSharing(recipe);
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    const dataUrl = createFlashCardJpg(recipe);
+    const file = dataUrlToFile(dataUrl, getFlashCardFileName(recipe));
+
+    if (navigator.canShare?.({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: recipe.dishName,
+      });
+      return;
+    }
+
+    downloadDataUrl(dataUrl, file.name);
+    setError("This browser cannot attach an image directly to WhatsApp. The JPG card was downloaded instead.");
   }
 
   const canAnalyzeAgain = Boolean(capturedFile) && step !== "analyzing";
@@ -837,29 +845,24 @@ function slugify(value: string) {
   );
 }
 
-function formatRecipeForSharing(recipe: Recipe) {
-  const ingredients = recipe.ingredients
-    .map((ingredient) => `- ${ingredient.amount} ${ingredient.item}`)
-    .join("\n");
-  const instructions = recipe.instructions
-    .map((instruction, index) => `${index + 1}. ${instruction}`)
-    .join("\n");
-  const platingTips = recipe.platingTips.length
-    ? `\n\nPlating tips:\n${recipe.platingTips.map((tip) => `- ${tip}`).join("\n")}`
-    : "";
+function getFlashCardFileName(recipe: Recipe) {
+  return `${slugify(recipe.dishName)}-chef-card.jpg`;
+}
 
-  return [
-    `${recipe.dishName}`,
-    recipe.shortDescription,
-    "",
-    `${recipe.cuisine} | ${recipe.difficulty} | Serves ${recipe.servings}`,
-    `Prep ${recipe.prepTime} | Cook ${recipe.cookTime} | ${recipe.caloriesPerServing}`,
-    "",
-    "Ingredients:",
-    ingredients,
-    "",
-    "Method:",
-    instructions,
-    platingTips,
-  ].join("\n");
+function dataUrlToFile(dataUrl: string, fileName: string) {
+  const [header, base64] = dataUrl.split(",");
+  const mimeType = header.match(/data:(.*);base64/)?.[1] || "image/jpeg";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new File([bytes], fileName, { type: mimeType });
+}
+
+function downloadDataUrl(dataUrl: string, fileName: string) {
+  const link = document.createElement("a");
+  link.href = dataUrl;
+  link.download = fileName;
+  link.click();
 }
