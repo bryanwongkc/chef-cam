@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, ReactNode, RefObject, useEffect, useRef, useState } from "react";
 
 type Ingredient = {
   item: string;
@@ -253,74 +253,66 @@ export default function Home() {
   const canAnalyzeAgain = Boolean(capturedFile) && step !== "analyzing";
 
   return (
-    <main className="min-h-screen bg-[#f7f7f7] text-[#171717]">
-      <div className="no-print mx-auto grid min-h-screen max-w-7xl gap-4 px-3 py-3 sm:px-4 sm:py-5 md:grid-cols-[0.85fr_1.15fr] md:gap-8 md:px-8 md:py-6 lg:px-10">
-        <section className="flex flex-col justify-between rounded-lg border border-[#dedede] bg-white p-4 sm:p-5 md:p-7">
+    <main className="min-h-screen bg-white text-[#111111]">
+      <div className="no-print mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5 lg:px-8">
+        <header className="grid gap-4 border-b border-[#e6e6e6] pb-5 md:grid-cols-[1fr_auto] md:items-end">
           <div>
-            <p className="text-xs font-semibold uppercase text-[#666666]">ChefCam</p>
-            <h1 className="mt-3 max-w-md text-3xl font-semibold leading-tight sm:text-4xl md:mt-4 md:text-5xl">
-              Capture a dish. Get a recipe.
+            <div className="flex items-center gap-2 text-xs font-medium uppercase text-[#6b6b6b]">
+              <span className="h-2 w-2 rounded-full bg-[#111111]" />
+              ChefCam
+            </div>
+            <h1 className="mt-3 max-w-2xl text-3xl font-semibold leading-tight sm:text-4xl lg:text-5xl">
+              Camera-first recipe generator.
             </h1>
-            <p className="mt-3 max-w-md text-sm leading-6 text-[#555555] md:mt-4">
-              Open the camera, take one clear photo, and Gemini will turn it into a practical recipe.
-            </p>
           </div>
+          <Progress step={step} />
+        </header>
 
-          <div className="mt-6 space-y-4 md:mt-8">
-            <WorkflowStatus step={step} />
-            <div className="grid gap-2 sm:flex sm:flex-wrap">
+        <section className="grid gap-3 py-3 md:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] md:gap-5 md:py-5">
+          <div className="space-y-3 md:space-y-5">
+            <Studio
+              step={step}
+              videoRef={videoRef}
+              previewUrl={previewUrl}
+              elapsedSeconds={elapsedSeconds}
+              statusMessage={statusMessage}
+              onCapture={capturePhoto}
+              onCancel={() => {
+                stopCamera();
+                setStep(capturedFile ? "captured" : "idle");
+              }}
+            />
+
+            {error && <Notice>{error}</Notice>}
+
+            <div className="grid gap-2 rounded-lg border border-[#e6e6e6] bg-[#fafafa] p-3 sm:grid-cols-3">
               <Button onClick={openCamera} primary disabled={step === "analyzing"}>
                 Open Camera
               </Button>
               <Button onClick={() => fileInputRef.current?.click()} disabled={step === "analyzing"}>
                 Choose Photo
               </Button>
-              {canAnalyzeAgain && (
-                <Button onClick={() => capturedFile && analyzeFile(capturedFile)}>
-                  Analyze Again
-                </Button>
-              )}
+              <Button
+                onClick={() => capturedFile && analyzeFile(capturedFile)}
+                disabled={!canAnalyzeAgain}
+              >
+                Analyze Again
+              </Button>
             </div>
           </div>
-        </section>
 
-        <section className="space-y-4 md:space-y-5">
-          {error && (
-            <div className="rounded-lg border border-[#cfcfcf] bg-[#f2f2f2] px-4 py-3 text-sm text-[#333333]">
-              {error}
-            </div>
-          )}
-
-          <div className="overflow-hidden rounded-lg border border-[#dedede] bg-white">
-            {step === "camera" ? (
-              <CameraPanel
-                videoRef={videoRef}
-                onCapture={capturePhoto}
-                onCancel={() => {
-                  stopCamera();
-                  setStep(capturedFile ? "captured" : "idle");
-                }}
+          <aside className="min-h-[320px] rounded-lg border border-[#e6e6e6] bg-white">
+            {recipe ? (
+              <RecipePanel
+                recipe={recipe}
+                onRetake={retakePhoto}
+                onPdf={saveAsPdf}
+                onWhatsApp={shareOnWhatsApp}
               />
             ) : (
-              <PreviewPanel
-                previewUrl={previewUrl}
-                step={step}
-                elapsedSeconds={elapsedSeconds}
-                statusMessage={statusMessage}
-              />
+              <WaitingPanel step={step} elapsedSeconds={elapsedSeconds} statusMessage={statusMessage} />
             )}
-          </div>
-
-          {recipe ? (
-            <RecipeCard
-              recipe={recipe}
-              onRetake={retakePhoto}
-              onPdf={saveAsPdf}
-              onWhatsApp={shareOnWhatsApp}
-            />
-          ) : (
-            <EmptyRecipeState step={step} elapsedSeconds={elapsedSeconds} statusMessage={statusMessage} />
-          )}
+          </aside>
         </section>
       </div>
 
@@ -337,97 +329,68 @@ export default function Home() {
   );
 }
 
-function CameraPanel({
+function Studio({
+  step,
   videoRef,
+  previewUrl,
+  elapsedSeconds,
+  statusMessage,
   onCapture,
   onCancel,
 }: {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
+  step: WorkflowStep;
+  videoRef: RefObject<HTMLVideoElement | null>;
+  previewUrl: string | null;
+  elapsedSeconds: number;
+  statusMessage: string;
   onCapture: () => void;
   onCancel: () => void;
 }) {
   return (
-    <div>
-      <video ref={videoRef} className="aspect-video w-full bg-black object-cover" playsInline muted />
-      <div className="grid gap-3 border-t border-[#e5e5e5] p-3 sm:flex sm:items-center sm:justify-between sm:p-4">
-        <p className="text-sm text-[#555555]">Frame the dish clearly, then capture.</p>
-        <div className="grid gap-2 sm:flex">
+    <section className="overflow-hidden rounded-lg border border-[#e6e6e6] bg-[#f6f6f6]">
+      <div className="relative aspect-[3/4] bg-[#ededed] sm:aspect-[4/3] lg:aspect-[16/11]">
+        {step === "camera" ? (
+          <video ref={videoRef} className="h-full w-full bg-black object-cover" playsInline muted />
+        ) : previewUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={previewUrl} alt="Captured dish" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full items-center justify-center p-6 text-center">
+            <div>
+              <p className="text-sm font-semibold uppercase text-[#777777]">No photo</p>
+              <p className="mt-2 max-w-xs text-sm leading-6 text-[#555555]">
+                Open the camera and capture the dish in clear light.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {step === "analyzing" && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#111111]/70 px-6 text-center text-white">
+            <div>
+              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <p className="mt-4 text-sm font-medium">
+                {statusMessage || "Analyzing"} {elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {step === "camera" && (
+        <div className="grid gap-2 border-t border-[#e6e6e6] bg-white p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+          <p className="text-sm text-[#555555]">Frame the dish, then capture.</p>
           <Button onClick={onCancel}>Cancel</Button>
           <Button onClick={onCapture} primary>
             Capture
           </Button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function PreviewPanel({
-  previewUrl,
-  step,
-  elapsedSeconds,
-  statusMessage,
-}: {
-  previewUrl: string | null;
-  step: WorkflowStep;
-  elapsedSeconds: number;
-  statusMessage: string;
-}) {
-  return (
-    <div className="relative aspect-[4/3] bg-[#eeeeee]">
-      {previewUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={previewUrl} alt="Captured dish" className="h-full w-full object-cover" />
-      ) : (
-        <div className="flex h-full items-center justify-center px-5 text-center sm:px-8">
-          <div>
-            <p className="text-base font-semibold text-[#171717] sm:text-lg">No photo yet</p>
-            <p className="mt-2 max-w-sm text-sm leading-6 text-[#666666]">
-              Start with the camera. A clear overhead or angled photo works best.
-            </p>
-          </div>
-        </div>
       )}
-
-      {step === "analyzing" && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#171717]/65 px-6 text-center text-white">
-          <div>
-            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-            <p className="mt-4 text-sm font-medium">
-              {statusMessage || "Analyzing"} {elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function EmptyRecipeState({
-  step,
-  elapsedSeconds,
-  statusMessage,
-}: {
-  step: WorkflowStep;
-  elapsedSeconds: number;
-  statusMessage: string;
-}) {
-  const message =
-    step === "analyzing"
-      ? `${statusMessage || "Analyzing"} ${elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}`
-      : "Your generated recipe will appear here after capture.";
-
-  return (
-    <section className="rounded-lg border border-dashed border-[#d6d6d6] bg-white p-5 text-center sm:p-8">
-      <p className="text-base font-semibold text-[#171717] sm:text-lg">
-        {step === "analyzing" ? "Recipe in progress" : "Ready when you are"}
-      </p>
-      <p className="mt-2 text-sm text-[#666666]">{message}</p>
     </section>
   );
 }
 
-function RecipeCard({
+function RecipePanel({
   recipe,
   onRetake,
   onPdf,
@@ -439,40 +402,22 @@ function RecipeCard({
   onWhatsApp: () => void;
 }) {
   return (
-    <article className="rounded-lg border border-[#dedede] bg-white">
-      <div className="border-b border-[#e5e5e5] p-4 sm:p-5 md:p-6">
-        <div className="grid gap-4 lg:flex lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase text-[#777777]">Generated Recipe</p>
-            <h2 className="mt-2 text-2xl font-semibold leading-tight sm:text-3xl">
-              {recipe.dishName}
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#555555]">
-              {recipe.shortDescription}
-            </p>
-          </div>
-          <div className="grid gap-2 sm:flex sm:flex-wrap lg:justify-end">
-            <Button onClick={onPdf}>Save as PDF</Button>
-            <Button onClick={onWhatsApp} primary>
-              Share WhatsApp
-            </Button>
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-1.5 sm:mt-5 sm:gap-2">
-          <Meta label={recipe.cuisine} />
-          <Meta label={recipe.difficulty} />
-          <Meta label={`Serves ${recipe.servings}`} />
-          <Meta label={`Prep ${recipe.prepTime}`} />
-          <Meta label={`Cook ${recipe.cookTime}`} />
-          <Meta label={recipe.caloriesPerServing} />
+    <article className="flex h-full flex-col">
+      <div className="border-b border-[#e6e6e6] p-4 sm:p-5">
+        <p className="text-xs font-medium uppercase text-[#777777]">Recipe</p>
+        <h2 className="mt-2 text-2xl font-semibold leading-tight sm:text-3xl">{recipe.dishName}</h2>
+        <p className="mt-2 text-sm leading-6 text-[#555555]">{recipe.shortDescription}</p>
+        <div className="mt-4 flex flex-wrap gap-1.5">
+          <Tag>{recipe.cuisine}</Tag>
+          <Tag>{recipe.difficulty}</Tag>
+          <Tag>Serves {recipe.servings}</Tag>
+          <Tag>{recipe.caloriesPerServing}</Tag>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-[0.8fr_1.2fr]">
-        <section className="border-b border-[#e5e5e5] p-4 sm:p-5 md:border-b-0 md:border-r md:p-6">
-          <h3 className="text-sm font-semibold">Ingredients</h3>
-          <ul className="mt-3 grid gap-3 sm:mt-4 sm:grid-cols-2 md:block md:space-y-3">
+      <div className="grid gap-0 md:flex-1">
+        <RecipeSection title="Ingredients">
+          <ul className="grid gap-3 sm:grid-cols-2 md:grid-cols-1">
             {recipe.ingredients.map((ingredient, index) => (
               <li key={`${ingredient.item}-${index}`} className="text-sm">
                 <p className="font-medium">{ingredient.item}</p>
@@ -480,14 +425,13 @@ function RecipeCard({
               </li>
             ))}
           </ul>
-        </section>
+        </RecipeSection>
 
-        <section className="p-4 sm:p-5 md:p-6">
-          <h3 className="text-sm font-semibold">Method</h3>
-          <ol className="mt-3 space-y-3 sm:mt-4 sm:space-y-4">
+        <RecipeSection title="Method">
+          <ol className="space-y-3">
             {recipe.instructions.map((instruction, index) => (
-              <li key={`${instruction}-${index}`} className="flex gap-3 text-sm leading-6">
-                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[#171717] text-xs font-semibold text-white">
+              <li key={`${instruction}-${index}`} className="grid grid-cols-[1.75rem_1fr] gap-3 text-sm leading-6">
+                <span className="flex h-7 w-7 items-center justify-center rounded bg-[#111111] text-xs font-medium text-white">
                   {index + 1}
                 </span>
                 <span>{instruction}</span>
@@ -496,8 +440,8 @@ function RecipeCard({
           </ol>
 
           {recipe.platingTips.length > 0 && (
-            <div className="mt-5 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3 sm:mt-6 sm:p-4">
-              <h4 className="text-sm font-semibold">Plating Tips</h4>
+            <div className="mt-5 border-t border-[#e6e6e6] pt-4">
+              <p className="text-sm font-semibold">Plating</p>
               <ul className="mt-2 space-y-2 text-sm leading-6 text-[#555555]">
                 {recipe.platingTips.map((tip, index) => (
                   <li key={`${tip}-${index}`}>- {tip}</li>
@@ -505,19 +449,91 @@ function RecipeCard({
               </ul>
             </div>
           )}
+        </RecipeSection>
+      </div>
 
-          <div className="mt-5 grid sm:mt-6 sm:block">
-            <Button onClick={onRetake}>Retake Photo</Button>
-          </div>
-        </section>
+      <div className="grid gap-2 border-t border-[#e6e6e6] p-3 sm:grid-cols-3">
+        <Button onClick={onPdf}>Save PDF</Button>
+        <Button onClick={onWhatsApp} primary>
+          WhatsApp
+        </Button>
+        <Button onClick={onRetake}>Retake</Button>
       </div>
     </article>
   );
 }
 
+function WaitingPanel({
+  step,
+  elapsedSeconds,
+  statusMessage,
+}: {
+  step: WorkflowStep;
+  elapsedSeconds: number;
+  statusMessage: string;
+}) {
+  const isAnalyzing = step === "analyzing";
+  return (
+    <div className="flex min-h-[320px] h-full items-center justify-center p-6 text-center">
+      <div>
+        <p className="text-xs font-medium uppercase text-[#777777]">
+          {isAnalyzing ? "Working" : "Recipe output"}
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold">
+          {isAnalyzing ? "Building your recipe" : "Capture to begin"}
+        </h2>
+        <p className="mt-3 max-w-sm text-sm leading-6 text-[#555555]">
+          {isAnalyzing
+            ? `${statusMessage || "Analyzing"} ${elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}`
+            : "The generated recipe, ingredients, method, PDF export, and WhatsApp share controls will appear here."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function Progress({ step }: { step: WorkflowStep }) {
+  const stages = ["Capture", "Analyze", "Export"];
+  const active = step === "ready" ? 2 : step === "analyzing" ? 1 : 0;
+
+  return (
+    <div className="grid grid-cols-3 gap-1.5 sm:min-w-80">
+      {stages.map((stage, index) => (
+        <div
+          key={stage}
+          className={
+            index <= active
+              ? "rounded-lg border border-[#111111] bg-[#111111] px-3 py-2 text-center text-xs font-medium text-white"
+              : "rounded-lg border border-[#e0e0e0] bg-white px-3 py-2 text-center text-xs font-medium text-[#666666]"
+          }
+        >
+          {stage}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RecipeSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="border-b border-[#e6e6e6] p-4 last:border-b-0 sm:p-5">
+      <h3 className="mb-4 text-sm font-semibold uppercase text-[#777777]">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function Notice({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-[#d0d0d0] bg-[#f3f3f3] px-4 py-3 text-sm leading-6 text-[#333333]">
+      {children}
+    </div>
+  );
+}
+
 function PrintableRecipe({ recipe }: { recipe: Recipe }) {
   return (
-    <section className="print-sheet hidden bg-white p-8 text-[#171717]">
+    <section className="print-sheet hidden bg-white p-8 text-[#111111]">
       <p className="text-xs font-semibold uppercase">ChefCam Recipe</p>
       <h1 className="mt-3 text-3xl font-semibold">{recipe.dishName}</h1>
       <p className="mt-2 text-sm">{recipe.shortDescription}</p>
@@ -563,44 +579,13 @@ function PrintableRecipe({ recipe }: { recipe: Recipe }) {
   );
 }
 
-function WorkflowStatus({ step }: { step: WorkflowStep }) {
-  const items = [
-    { id: "camera", label: "Open camera" },
-    { id: "analyzing", label: "Analyze" },
-    { id: "ready", label: "Export" },
-  ];
-  const activeIndex =
-    step === "idle" || step === "camera" || step === "captured"
-      ? 0
-      : step === "analyzing"
-        ? 1
-        : 2;
-
-  return (
-    <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
-      {items.map((item, index) => (
-        <div
-          key={item.id}
-          className={
-            index <= activeIndex
-              ? "rounded-lg border border-[#171717] bg-[#171717] px-2 py-2 text-center text-[11px] font-medium text-white sm:px-3 sm:text-xs"
-              : "rounded-lg border border-[#dedede] bg-[#f7f7f7] px-2 py-2 text-center text-[11px] font-medium text-[#666666] sm:px-3 sm:text-xs"
-          }
-        >
-          {item.label}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function Button({
   children,
   onClick,
   primary = false,
   disabled = false,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
   primary?: boolean;
   disabled?: boolean;
@@ -612,8 +597,8 @@ function Button({
       disabled={disabled}
       className={
         primary
-          ? "w-full rounded-lg bg-[#171717] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#303030] disabled:cursor-not-allowed disabled:bg-[#a6a6a6] sm:w-auto sm:py-2.5"
-          : "w-full rounded-lg border border-[#d6d6d6] bg-white px-4 py-3 text-sm font-medium text-[#171717] transition hover:bg-[#f2f2f2] disabled:cursor-not-allowed disabled:text-[#a6a6a6] sm:w-auto sm:py-2.5"
+          ? "w-full rounded-lg bg-[#111111] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#303030] disabled:cursor-not-allowed disabled:bg-[#a6a6a6]"
+          : "w-full rounded-lg border border-[#d6d6d6] bg-white px-4 py-3 text-sm font-medium text-[#111111] transition hover:bg-[#f3f3f3] disabled:cursor-not-allowed disabled:text-[#a6a6a6]"
       }
     >
       {children}
@@ -621,10 +606,10 @@ function Button({
   );
 }
 
-function Meta({ label }: { label: string }) {
+function Tag({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-md border border-[#d6d6d6] bg-[#f2f2f2] px-2 py-1 text-[11px] font-medium text-[#333333] sm:px-2.5 sm:text-xs">
-      {label}
+    <span className="rounded-md border border-[#d6d6d6] bg-[#f5f5f5] px-2 py-1 text-[11px] font-medium text-[#333333]">
+      {children}
     </span>
   );
 }
