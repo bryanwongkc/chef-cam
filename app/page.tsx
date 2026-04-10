@@ -253,22 +253,22 @@ export default function Home() {
   const canAnalyzeAgain = Boolean(capturedFile) && step !== "analyzing";
 
   return (
-    <main className="min-h-screen bg-white text-[#111111]">
-      <div className="no-print mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5 lg:px-8">
-        <header className="grid gap-4 border-b border-[#e6e6e6] pb-5 md:grid-cols-[1fr_auto] md:items-end">
+    <main className="min-h-dvh bg-white text-[#111111]">
+      <div className="no-print mx-auto max-w-6xl px-3 pb-28 pt-3 sm:px-5 sm:pb-5 sm:pt-5 lg:px-8">
+        <header className="grid gap-3 border-b border-[#e6e6e6] pb-3 sm:gap-4 sm:pb-5 md:grid-cols-[1fr_auto] md:items-end">
           <div>
             <div className="flex items-center gap-2 text-xs font-medium uppercase text-[#6b6b6b]">
               <span className="h-2 w-2 rounded-full bg-[#111111]" />
               ChefCam
             </div>
-            <h1 className="mt-3 max-w-2xl text-3xl font-semibold leading-tight sm:text-4xl lg:text-5xl">
+            <h1 className="mt-2 max-w-2xl text-2xl font-semibold leading-tight sm:mt-3 sm:text-4xl lg:text-5xl">
               Camera-first recipe generator.
             </h1>
           </div>
           <Progress step={step} />
         </header>
 
-        <section className="grid gap-4 py-4 md:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] md:gap-5 md:py-5">
+        <section className="grid gap-4 py-3 sm:py-4 md:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] md:gap-5 md:py-5">
           <div className="space-y-3 md:space-y-5">
             <Studio
               step={step}
@@ -285,7 +285,7 @@ export default function Home() {
 
             {error && <Notice>{error}</Notice>}
 
-            <div className="sticky bottom-3 z-10 grid gap-3 rounded-lg border border-[#d8d8d8] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.08)] sm:static sm:grid-cols-3 sm:shadow-none">
+            <div className="fixed inset-x-3 bottom-3 z-20 grid gap-3 rounded-lg border border-[#d8d8d8] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.12)] sm:static sm:grid-cols-3 sm:shadow-none">
               <Button onClick={openCamera} primary disabled={step === "analyzing"}>
                 Open Camera
               </Button>
@@ -348,14 +348,23 @@ function Studio({
 }) {
   return (
     <section className="overflow-hidden rounded-lg border border-[#e6e6e6] bg-[#f6f6f6]">
-      <div className="relative aspect-[3/4] bg-[#ededed] sm:aspect-[4/3] lg:aspect-[16/11]">
+      <div className="relative min-h-[52dvh] bg-[#ededed] sm:aspect-[4/3] sm:min-h-0 lg:aspect-[16/11]">
         {step === "camera" ? (
-          <video ref={videoRef} className="h-full w-full bg-black object-cover" playsInline muted />
+          <video
+            ref={videoRef}
+            className="absolute inset-0 h-full w-full bg-black object-cover"
+            playsInline
+            muted
+          />
         ) : previewUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={previewUrl} alt="Captured dish" className="h-full w-full object-cover" />
+          <img
+            src={previewUrl}
+            alt="Captured dish"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
         ) : (
-          <div className="flex h-full items-center justify-center p-6 text-center">
+          <div className="flex h-full min-h-[52dvh] items-center justify-center p-6 text-center sm:min-h-0">
             <div>
               <p className="text-sm font-semibold uppercase text-[#777777]">No photo</p>
               <p className="mt-2 max-w-xs text-sm leading-6 text-[#555555]">
@@ -405,10 +414,12 @@ function RecipePanel({
 }) {
   return (
     <article className="flex h-full flex-col">
-      <div className="border-b border-[#e6e6e6] p-5">
+      <div className="border-b border-[#e6e6e6] p-4 sm:p-5">
         <p className="text-xs font-medium uppercase text-[#777777]">Recipe</p>
         <h2 className="mt-2 text-2xl font-semibold leading-tight sm:text-3xl">{recipe.dishName}</h2>
-        <p className="mt-2 text-sm leading-6 text-[#555555]">{recipe.shortDescription}</p>
+        <p className="mt-2 text-base leading-7 text-[#555555] sm:text-sm sm:leading-6">
+          {recipe.shortDescription}
+        </p>
         <div className="mt-4 flex flex-wrap gap-1.5">
           <Tag>{recipe.cuisine}</Tag>
           <Tag>{recipe.difficulty}</Tag>
@@ -454,7 +465,7 @@ function RecipePanel({
         </RecipeSection>
       </div>
 
-      <div className="sticky bottom-0 grid gap-3 border-t border-[#d8d8d8] bg-white p-4 sm:static sm:grid-cols-3">
+      <div className="grid gap-3 border-t border-[#d8d8d8] bg-white p-4 sm:grid-cols-3">
         <Button onClick={onPdf}>Save PDF</Button>
         <Button onClick={onWhatsApp} primary>
           WhatsApp
@@ -476,7 +487,7 @@ function WaitingPanel({
 }) {
   const isAnalyzing = step === "analyzing";
   return (
-    <div className="flex h-full min-h-[360px] items-center justify-center p-6 text-center">
+    <div className="flex h-full min-h-[300px] items-center justify-center p-6 text-center sm:min-h-[360px]">
       <div>
         <p className="text-xs font-medium uppercase text-[#777777]">
           {isAnalyzing ? "Working" : "Recipe output"}
@@ -505,8 +516,8 @@ function Progress({ step }: { step: WorkflowStep }) {
           key={stage}
           className={
             index <= active
-              ? "rounded-lg border border-[#111111] bg-[#111111] px-3 py-3 text-center text-sm font-medium text-white sm:py-2 sm:text-xs"
-              : "rounded-lg border border-[#e0e0e0] bg-white px-3 py-3 text-center text-sm font-medium text-[#666666] sm:py-2 sm:text-xs"
+              ? "rounded-lg border border-[#111111] bg-[#111111] px-2 py-2.5 text-center text-xs font-medium text-white sm:px-3 sm:py-2"
+              : "rounded-lg border border-[#e0e0e0] bg-white px-2 py-2.5 text-center text-xs font-medium text-[#666666] sm:px-3 sm:py-2"
           }
         >
           {stage}
@@ -518,7 +529,7 @@ function Progress({ step }: { step: WorkflowStep }) {
 
 function RecipeSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-b border-[#e6e6e6] p-5 last:border-b-0">
+    <section className="border-b border-[#e6e6e6] p-4 last:border-b-0 sm:p-5">
       <h3 className="mb-4 text-base font-semibold uppercase text-[#777777] sm:text-sm">{title}</h3>
       {children}
     </section>
