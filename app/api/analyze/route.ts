@@ -107,7 +107,7 @@ async function generateRecipeText({
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt += 1) {
     try {
       const model = genAI.getGenerativeModel({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.1-flash-lite-preview",
         generationConfig: {
           responseMimeType: "application/json",
         },
