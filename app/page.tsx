@@ -268,7 +268,7 @@ export default function Home() {
           <Progress step={step} />
         </header>
 
-        <section className="grid gap-3 py-3 md:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] md:gap-5 md:py-5">
+        <section className="grid gap-4 py-4 md:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] md:gap-5 md:py-5">
           <div className="space-y-3 md:space-y-5">
             <Studio
               step={step}
@@ -285,7 +285,7 @@ export default function Home() {
 
             {error && <Notice>{error}</Notice>}
 
-            <div className="grid gap-2 rounded-lg border border-[#e6e6e6] bg-[#fafafa] p-3 sm:grid-cols-3">
+            <div className="sticky bottom-3 z-10 grid gap-3 rounded-lg border border-[#d8d8d8] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.08)] sm:static sm:grid-cols-3 sm:shadow-none">
               <Button onClick={openCamera} primary disabled={step === "analyzing"}>
                 Open Camera
               </Button>
@@ -301,7 +301,7 @@ export default function Home() {
             </div>
           </div>
 
-          <aside className="min-h-[320px] rounded-lg border border-[#e6e6e6] bg-white">
+          <aside className="min-h-[360px] rounded-lg border border-[#e6e6e6] bg-white">
             {recipe ? (
               <RecipePanel
                 recipe={recipe}
@@ -378,8 +378,10 @@ function Studio({
       </div>
 
       {step === "camera" && (
-        <div className="grid gap-2 border-t border-[#e6e6e6] bg-white p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
-          <p className="text-sm text-[#555555]">Frame the dish, then capture.</p>
+        <div className="grid gap-3 border-t border-[#e6e6e6] bg-white p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+          <p className="text-base font-medium text-[#333333] sm:text-sm sm:font-normal sm:text-[#555555]">
+            Frame the dish, then capture.
+          </p>
           <Button onClick={onCancel}>Cancel</Button>
           <Button onClick={onCapture} primary>
             Capture
@@ -403,7 +405,7 @@ function RecipePanel({
 }) {
   return (
     <article className="flex h-full flex-col">
-      <div className="border-b border-[#e6e6e6] p-4 sm:p-5">
+      <div className="border-b border-[#e6e6e6] p-5">
         <p className="text-xs font-medium uppercase text-[#777777]">Recipe</p>
         <h2 className="mt-2 text-2xl font-semibold leading-tight sm:text-3xl">{recipe.dishName}</h2>
         <p className="mt-2 text-sm leading-6 text-[#555555]">{recipe.shortDescription}</p>
@@ -452,7 +454,7 @@ function RecipePanel({
         </RecipeSection>
       </div>
 
-      <div className="grid gap-2 border-t border-[#e6e6e6] p-3 sm:grid-cols-3">
+      <div className="sticky bottom-0 grid gap-3 border-t border-[#d8d8d8] bg-white p-4 sm:static sm:grid-cols-3">
         <Button onClick={onPdf}>Save PDF</Button>
         <Button onClick={onWhatsApp} primary>
           WhatsApp
@@ -474,15 +476,15 @@ function WaitingPanel({
 }) {
   const isAnalyzing = step === "analyzing";
   return (
-    <div className="flex min-h-[320px] h-full items-center justify-center p-6 text-center">
+    <div className="flex h-full min-h-[360px] items-center justify-center p-6 text-center">
       <div>
         <p className="text-xs font-medium uppercase text-[#777777]">
           {isAnalyzing ? "Working" : "Recipe output"}
         </p>
-        <h2 className="mt-2 text-2xl font-semibold">
+        <h2 className="mt-2 text-3xl font-semibold sm:text-2xl">
           {isAnalyzing ? "Building your recipe" : "Capture to begin"}
         </h2>
-        <p className="mt-3 max-w-sm text-sm leading-6 text-[#555555]">
+        <p className="mt-3 max-w-sm text-base leading-7 text-[#555555] sm:text-sm sm:leading-6">
           {isAnalyzing
             ? `${statusMessage || "Analyzing"} ${elapsedSeconds > 0 ? `(${elapsedSeconds}s)` : ""}`
             : "The generated recipe, ingredients, method, PDF export, and WhatsApp share controls will appear here."}
@@ -503,8 +505,8 @@ function Progress({ step }: { step: WorkflowStep }) {
           key={stage}
           className={
             index <= active
-              ? "rounded-lg border border-[#111111] bg-[#111111] px-3 py-2 text-center text-xs font-medium text-white"
-              : "rounded-lg border border-[#e0e0e0] bg-white px-3 py-2 text-center text-xs font-medium text-[#666666]"
+              ? "rounded-lg border border-[#111111] bg-[#111111] px-3 py-3 text-center text-sm font-medium text-white sm:py-2 sm:text-xs"
+              : "rounded-lg border border-[#e0e0e0] bg-white px-3 py-3 text-center text-sm font-medium text-[#666666] sm:py-2 sm:text-xs"
           }
         >
           {stage}
@@ -516,8 +518,8 @@ function Progress({ step }: { step: WorkflowStep }) {
 
 function RecipeSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="border-b border-[#e6e6e6] p-4 last:border-b-0 sm:p-5">
-      <h3 className="mb-4 text-sm font-semibold uppercase text-[#777777]">{title}</h3>
+    <section className="border-b border-[#e6e6e6] p-5 last:border-b-0">
+      <h3 className="mb-4 text-base font-semibold uppercase text-[#777777] sm:text-sm">{title}</h3>
       {children}
     </section>
   );
@@ -525,7 +527,7 @@ function RecipeSection({ title, children }: { title: string; children: ReactNode
 
 function Notice({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-[#d0d0d0] bg-[#f3f3f3] px-4 py-3 text-sm leading-6 text-[#333333]">
+    <div className="rounded-lg border border-[#d0d0d0] bg-[#f3f3f3] px-4 py-4 text-base leading-7 text-[#333333] sm:py-3 sm:text-sm sm:leading-6">
       {children}
     </div>
   );
@@ -597,8 +599,8 @@ function Button({
       disabled={disabled}
       className={
         primary
-          ? "w-full rounded-lg bg-[#111111] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#303030] disabled:cursor-not-allowed disabled:bg-[#a6a6a6]"
-          : "w-full rounded-lg border border-[#d6d6d6] bg-white px-4 py-3 text-sm font-medium text-[#111111] transition hover:bg-[#f3f3f3] disabled:cursor-not-allowed disabled:text-[#a6a6a6]"
+          ? "min-h-14 w-full rounded-lg bg-[#111111] px-5 py-4 text-base font-semibold text-white transition hover:bg-[#303030] disabled:cursor-not-allowed disabled:bg-[#a6a6a6] sm:min-h-11 sm:px-4 sm:py-3 sm:text-sm sm:font-medium"
+          : "min-h-14 w-full rounded-lg border border-[#cfcfcf] bg-white px-5 py-4 text-base font-semibold text-[#111111] transition hover:bg-[#f3f3f3] disabled:cursor-not-allowed disabled:text-[#a6a6a6] sm:min-h-11 sm:px-4 sm:py-3 sm:text-sm sm:font-medium"
       }
     >
       {children}
@@ -608,7 +610,7 @@ function Button({
 
 function Tag({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-md border border-[#d6d6d6] bg-[#f5f5f5] px-2 py-1 text-[11px] font-medium text-[#333333]">
+    <span className="rounded-md border border-[#d6d6d6] bg-[#f5f5f5] px-2.5 py-1.5 text-xs font-medium text-[#333333]">
       {children}
     </span>
   );
