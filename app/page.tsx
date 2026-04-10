@@ -254,7 +254,7 @@ export default function Home() {
 
   return (
     <main className="min-h-dvh bg-white text-[#111111]">
-      <div className="no-print mx-auto max-w-6xl px-3 pb-28 pt-3 sm:px-5 sm:pb-5 sm:pt-5 lg:px-8">
+      <div className="no-print mx-auto max-w-6xl px-3 py-3 sm:px-5 sm:py-5 lg:px-8">
         <header className="grid gap-3 border-b border-[#e6e6e6] pb-3 sm:gap-4 sm:pb-5 md:grid-cols-[1fr_auto] md:items-end">
           <div>
             <div className="flex items-center gap-2 text-xs font-medium uppercase text-[#6b6b6b]">
@@ -285,7 +285,7 @@ export default function Home() {
 
             {error && <Notice>{error}</Notice>}
 
-            <div className="fixed inset-x-3 bottom-3 z-20 grid gap-3 rounded-lg border border-[#d8d8d8] bg-white p-3 shadow-[0_12px_32px_rgba(0,0,0,0.12)] sm:static sm:grid-cols-3 sm:shadow-none">
+            <div className="grid gap-3 rounded-lg border border-[#d8d8d8] bg-white p-3 sm:grid-cols-3">
               <Button onClick={openCamera} primary disabled={step === "analyzing"}>
                 Open Camera
               </Button>
