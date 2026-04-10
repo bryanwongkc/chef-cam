@@ -244,6 +244,15 @@ export default function Home() {
     window.print();
   }
 
+  function saveAsFlashCardJpg() {
+    if (!recipe) return;
+    const dataUrl = createFlashCardJpg(recipe);
+    const link = document.createElement("a");
+    link.href = dataUrl;
+    link.download = `${slugify(recipe.dishName)}-chef-card.jpg`;
+    link.click();
+  }
+
   function shareOnWhatsApp() {
     if (!recipe) return;
     const text = formatRecipeForSharing(recipe);
@@ -307,6 +316,7 @@ export default function Home() {
                 recipe={recipe}
                 onRetake={retakePhoto}
                 onPdf={saveAsPdf}
+                onJpg={saveAsFlashCardJpg}
                 onWhatsApp={shareOnWhatsApp}
               />
             ) : (
@@ -405,11 +415,13 @@ function RecipePanel({
   recipe,
   onRetake,
   onPdf,
+  onJpg,
   onWhatsApp,
 }: {
   recipe: Recipe;
   onRetake: () => void;
   onPdf: () => void;
+  onJpg: () => void;
   onWhatsApp: () => void;
 }) {
   return (
@@ -465,7 +477,8 @@ function RecipePanel({
         </RecipeSection>
       </div>
 
-      <div className="grid gap-3 border-t border-[#d8d8d8] bg-white p-4 sm:grid-cols-3">
+      <div className="grid gap-3 border-t border-[#d8d8d8] bg-white p-4 sm:grid-cols-2">
+        <Button onClick={onJpg}>Save JPG</Button>
         <Button onClick={onPdf}>Save PDF</Button>
         <Button onClick={onWhatsApp} primary>
           WhatsApp
@@ -624,6 +637,203 @@ function Tag({ children }: { children: ReactNode }) {
     <span className="rounded-md border border-[#d6d6d6] bg-[#f5f5f5] px-2.5 py-1.5 text-xs font-medium text-[#333333]">
       {children}
     </span>
+  );
+}
+
+function createFlashCardJpg(recipe: Recipe) {
+  const scale = 2;
+  const width = 1080;
+  const height = 1600;
+  const canvas = document.createElement("canvas");
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "#111111";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(38, 38, width - 76, height - 76);
+
+  let y = 92;
+  drawText(ctx, "CHEFCAM RECIPE CARD", 72, y, {
+    size: 28,
+    weight: 700,
+    color: "#555555",
+  });
+  y += 68;
+
+  y = drawWrappedText(ctx, recipe.dishName, 72, y, 936, {
+    size: 62,
+    lineHeight: 72,
+    weight: 700,
+    color: "#111111",
+    maxLines: 3,
+  });
+  y += 22;
+
+  y = drawWrappedText(ctx, recipe.shortDescription, 72, y, 936, {
+    size: 30,
+    lineHeight: 44,
+    weight: 400,
+    color: "#444444",
+    maxLines: 3,
+  });
+  y += 34;
+
+  const meta = [
+    recipe.cuisine,
+    recipe.difficulty,
+    `Serves ${recipe.servings}`,
+    `Prep ${recipe.prepTime}`,
+    `Cook ${recipe.cookTime}`,
+    recipe.caloriesPerServing,
+  ];
+  y = drawMetaGrid(ctx, meta, 72, y, 936);
+  y += 44;
+
+  drawDivider(ctx, 72, y, 936);
+  y += 46;
+
+  drawText(ctx, "INGREDIENTS", 72, y, {
+    size: 30,
+    weight: 700,
+    color: "#111111",
+  });
+  y += 42;
+  for (const ingredient of recipe.ingredients.slice(0, 8)) {
+    y = drawWrappedText(ctx, `- ${ingredient.amount} ${ingredient.item}`, 72, y, 936, {
+      size: 28,
+      lineHeight: 38,
+      weight: 400,
+      color: "#222222",
+      maxLines: 2,
+    });
+    y += 10;
+  }
+
+  y += 22;
+  drawDivider(ctx, 72, y, 936);
+  y += 46;
+
+  drawText(ctx, "METHOD", 72, y, {
+    size: 30,
+    weight: 700,
+    color: "#111111",
+  });
+  y += 42;
+  for (const [index, instruction] of recipe.instructions.slice(0, 5).entries()) {
+    y = drawWrappedText(ctx, `${index + 1}. ${instruction}`, 72, y, 936, {
+      size: 27,
+      lineHeight: 38,
+      weight: 400,
+      color: "#222222",
+      maxLines: 3,
+    });
+    y += 12;
+    if (y > 1420) break;
+  }
+
+  drawText(ctx, "Generated with ChefCam", 72, 1526, {
+    size: 24,
+    weight: 500,
+    color: "#777777",
+  });
+
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
+function drawText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  options: { size: number; weight: number; color: string }
+) {
+  ctx.fillStyle = options.color;
+  ctx.font = `${options.weight} ${options.size}px Arial, sans-serif`;
+  ctx.fillText(text, x, y);
+}
+
+function drawWrappedText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  options: {
+    size: number;
+    lineHeight: number;
+    weight: number;
+    color: string;
+    maxLines: number;
+  }
+) {
+  ctx.fillStyle = options.color;
+  ctx.font = `${options.weight} ${options.size}px Arial, sans-serif`;
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = "";
+
+  for (const word of words) {
+    const testLine = line ? `${line} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+      if (lines.length === options.maxLines) break;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line && lines.length < options.maxLines) lines.push(line);
+
+  for (const [index, currentLine] of lines.entries()) {
+    const isLastAllowedLine = index === options.maxLines - 1 && words.length > currentLine.split(/\s+/).length;
+    ctx.fillText(isLastAllowedLine ? `${currentLine.replace(/[,.]$/, "")}...` : currentLine, x, y);
+    y += options.lineHeight;
+  }
+  return y;
+}
+
+function drawMetaGrid(ctx: CanvasRenderingContext2D, values: string[], x: number, y: number, width: number) {
+  const gap = 14;
+  const columns = 2;
+  const cellWidth = (width - gap) / columns;
+  const cellHeight = 58;
+  ctx.font = "600 24px Arial, sans-serif";
+
+  values.forEach((value, index) => {
+    const col = index % columns;
+    const row = Math.floor(index / columns);
+    const cellX = x + col * (cellWidth + gap);
+    const cellY = y + row * (cellHeight + gap);
+    ctx.strokeStyle = "#d6d6d6";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cellX, cellY, cellWidth, cellHeight);
+    ctx.fillStyle = "#222222";
+    ctx.fillText(value, cellX + 18, cellY + 37);
+  });
+
+  return y + Math.ceil(values.length / columns) * (cellHeight + gap) - gap;
+}
+
+function drawDivider(ctx: CanvasRenderingContext2D, x: number, y: number, width: number) {
+  ctx.strokeStyle = "#d6d6d6";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + width, y);
+  ctx.stroke();
+}
+
+function slugify(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") || "recipe"
   );
 }
 
