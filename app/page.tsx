@@ -489,7 +489,7 @@ function RecipePanel({
         <Button onClick={onJpg}>Save JPG</Button>
         <Button onClick={onPdf}>Save PDF</Button>
         <Button onClick={onWhatsApp} primary>
-          WhatsApp
+          Share JPG
         </Button>
         <Button onClick={onRetake}>Retake</Button>
       </div>
@@ -652,6 +652,10 @@ function createFlashCardJpg(recipe: Recipe) {
   const scale = 2;
   const width = 1080;
   const height = 1600;
+  const contentX = 72;
+  const contentWidth = 936;
+  const methodReserveY = 1040;
+  const footerY = 1526;
   const canvas = document.createElement("canvas");
   canvas.width = width * scale;
   canvas.height = height * scale;
@@ -673,23 +677,23 @@ function createFlashCardJpg(recipe: Recipe) {
   });
   y += 68;
 
-  y = drawWrappedText(ctx, recipe.dishName, 72, y, 936, {
-    size: 62,
-    lineHeight: 72,
+  y = drawWrappedText(ctx, recipe.dishName, contentX, y, contentWidth, {
+    size: 56,
+    lineHeight: 64,
     weight: 700,
     color: "#111111",
-    maxLines: 3,
+    maxLines: 2,
   });
-  y += 22;
+  y += 18;
 
-  y = drawWrappedText(ctx, recipe.shortDescription, 72, y, 936, {
-    size: 30,
-    lineHeight: 44,
+  y = drawWrappedText(ctx, recipe.shortDescription, contentX, y, contentWidth, {
+    size: 28,
+    lineHeight: 38,
     weight: 400,
     color: "#444444",
-    maxLines: 3,
+    maxLines: 2,
   });
-  y += 34;
+  y += 28;
 
   const meta = [
     recipe.cuisine,
@@ -699,20 +703,22 @@ function createFlashCardJpg(recipe: Recipe) {
     `Cook ${recipe.cookTime}`,
     recipe.caloriesPerServing,
   ];
-  y = drawMetaGrid(ctx, meta, 72, y, 936);
-  y += 44;
+  y = drawMetaGrid(ctx, meta, contentX, y, contentWidth);
+  y += 34;
 
-  drawDivider(ctx, 72, y, 936);
-  y += 46;
+  drawDivider(ctx, contentX, y, contentWidth);
+  y += 40;
 
-  drawText(ctx, "INGREDIENTS", 72, y, {
+  drawText(ctx, "INGREDIENTS", contentX, y, {
     size: 30,
     weight: 700,
     color: "#111111",
   });
   y += 42;
+  let ingredientsShown = 0;
   for (const ingredient of recipe.ingredients.slice(0, 8)) {
-    y = drawWrappedText(ctx, `- ${ingredient.amount} ${ingredient.item}`, 72, y, 936, {
+    if (y > methodReserveY - 96) break;
+    y = drawWrappedText(ctx, `- ${ingredient.amount} ${ingredient.item}`, contentX, y, contentWidth, {
       size: 28,
       lineHeight: 38,
       weight: 400,
@@ -720,20 +726,38 @@ function createFlashCardJpg(recipe: Recipe) {
       maxLines: 2,
     });
     y += 10;
+    ingredientsShown += 1;
+  }
+  if (recipe.ingredients.length > ingredientsShown && y < methodReserveY - 42) {
+    y = drawWrappedText(
+      ctx,
+      `+ ${recipe.ingredients.length - ingredientsShown} more ingredient${recipe.ingredients.length - ingredientsShown === 1 ? "" : "s"}`,
+      contentX,
+      y,
+      contentWidth,
+      {
+        size: 26,
+        lineHeight: 34,
+        weight: 600,
+        color: "#555555",
+        maxLines: 1,
+      }
+    );
   }
 
-  y += 22;
-  drawDivider(ctx, 72, y, 936);
+  y = Math.max(y + 22, methodReserveY);
+  drawDivider(ctx, contentX, y, contentWidth);
   y += 46;
 
-  drawText(ctx, "METHOD", 72, y, {
+  drawText(ctx, "METHOD", contentX, y, {
     size: 30,
     weight: 700,
     color: "#111111",
   });
   y += 42;
   for (const [index, instruction] of recipe.instructions.slice(0, 5).entries()) {
-    y = drawWrappedText(ctx, `${index + 1}. ${instruction}`, 72, y, 936, {
+    if (y > footerY - 118) break;
+    y = drawWrappedText(ctx, `${index + 1}. ${instruction}`, contentX, y, contentWidth, {
       size: 27,
       lineHeight: 38,
       weight: 400,
@@ -741,10 +765,9 @@ function createFlashCardJpg(recipe: Recipe) {
       maxLines: 3,
     });
     y += 12;
-    if (y > 1420) break;
   }
 
-  drawText(ctx, "Generated with ChefCam", 72, 1526, {
+  drawText(ctx, "Generated with ChefCam", contentX, footerY, {
     size: 24,
     weight: 500,
     color: "#777777",
@@ -781,35 +804,66 @@ function drawWrappedText(
 ) {
   ctx.fillStyle = options.color;
   ctx.font = `${options.weight} ${options.size}px Arial, sans-serif`;
-  const words = text.split(/\s+/);
+  const words = splitLongTokens(ctx, text.split(/\s+/), maxWidth);
   const lines: string[] = [];
   let line = "";
+  let truncated = false;
 
   for (const word of words) {
     const testLine = line ? `${line} ${word}` : word;
     if (ctx.measureText(testLine).width > maxWidth && line) {
       lines.push(line);
       line = word;
-      if (lines.length === options.maxLines) break;
+      if (lines.length === options.maxLines) {
+        truncated = true;
+        break;
+      }
     } else {
       line = testLine;
     }
   }
-  if (line && lines.length < options.maxLines) lines.push(line);
+  if (line && lines.length < options.maxLines) {
+    lines.push(line);
+  } else if (line) {
+    truncated = true;
+  }
 
   for (const [index, currentLine] of lines.entries()) {
-    const isLastAllowedLine = index === options.maxLines - 1 && words.length > currentLine.split(/\s+/).length;
+    const isLastAllowedLine = index === lines.length - 1 && truncated;
     ctx.fillText(isLastAllowedLine ? `${currentLine.replace(/[,.]$/, "")}...` : currentLine, x, y);
     y += options.lineHeight;
   }
   return y;
 }
 
+function splitLongTokens(ctx: CanvasRenderingContext2D, words: string[], maxWidth: number) {
+  const result: string[] = [];
+  for (const word of words) {
+    if (ctx.measureText(word).width <= maxWidth) {
+      result.push(word);
+      continue;
+    }
+
+    let chunk = "";
+    for (const char of word) {
+      const testChunk = `${chunk}${char}`;
+      if (ctx.measureText(testChunk).width > maxWidth && chunk) {
+        result.push(chunk);
+        chunk = char;
+      } else {
+        chunk = testChunk;
+      }
+    }
+    if (chunk) result.push(chunk);
+  }
+  return result;
+}
+
 function drawMetaGrid(ctx: CanvasRenderingContext2D, values: string[], x: number, y: number, width: number) {
   const gap = 14;
-  const columns = 2;
-  const cellWidth = (width - gap) / columns;
-  const cellHeight = 58;
+  const columns = 3;
+  const cellWidth = (width - gap * (columns - 1)) / columns;
+  const cellHeight = 54;
   ctx.font = "600 24px Arial, sans-serif";
 
   values.forEach((value, index) => {
@@ -821,10 +875,29 @@ function drawMetaGrid(ctx: CanvasRenderingContext2D, values: string[], x: number
     ctx.lineWidth = 2;
     ctx.strokeRect(cellX, cellY, cellWidth, cellHeight);
     ctx.fillStyle = "#222222";
-    ctx.fillText(value, cellX + 18, cellY + 37);
+    drawSingleLineFit(ctx, value, cellX + 16, cellY + 35, cellWidth - 32);
   });
 
   return y + Math.ceil(values.length / columns) * (cellHeight + gap) - gap;
+}
+
+function drawSingleLineFit(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number
+) {
+  if (ctx.measureText(text).width <= maxWidth) {
+    ctx.fillText(text, x, y);
+    return;
+  }
+
+  let clipped = text;
+  while (clipped.length > 1 && ctx.measureText(`${clipped}...`).width > maxWidth) {
+    clipped = clipped.slice(0, -1);
+  }
+  ctx.fillText(`${clipped}...`, x, y);
 }
 
 function drawDivider(ctx: CanvasRenderingContext2D, x: number, y: number, width: number) {
