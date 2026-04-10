@@ -254,21 +254,21 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#f7f7f7] text-[#171717]">
-      <div className="no-print mx-auto grid min-h-screen max-w-7xl gap-8 px-4 py-6 md:grid-cols-[0.85fr_1.15fr] md:px-8 lg:px-10">
-        <section className="flex flex-col justify-between rounded-lg border border-[#dedede] bg-white p-5 md:p-7">
+      <div className="no-print mx-auto grid min-h-screen max-w-7xl gap-4 px-3 py-3 sm:px-4 sm:py-5 md:grid-cols-[0.85fr_1.15fr] md:gap-8 md:px-8 md:py-6 lg:px-10">
+        <section className="flex flex-col justify-between rounded-lg border border-[#dedede] bg-white p-4 sm:p-5 md:p-7">
           <div>
             <p className="text-xs font-semibold uppercase text-[#666666]">ChefCam</p>
-            <h1 className="mt-4 max-w-md text-4xl font-semibold leading-tight md:text-5xl">
+            <h1 className="mt-3 max-w-md text-3xl font-semibold leading-tight sm:text-4xl md:mt-4 md:text-5xl">
               Capture a dish. Get a recipe.
             </h1>
-            <p className="mt-4 max-w-md text-sm leading-6 text-[#555555]">
+            <p className="mt-3 max-w-md text-sm leading-6 text-[#555555] md:mt-4">
               Open the camera, take one clear photo, and Gemini will turn it into a practical recipe.
             </p>
           </div>
 
-          <div className="mt-8 space-y-4">
+          <div className="mt-6 space-y-4 md:mt-8">
             <WorkflowStatus step={step} />
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-2 sm:flex sm:flex-wrap">
               <Button onClick={openCamera} primary disabled={step === "analyzing"}>
                 Open Camera
               </Button>
@@ -284,7 +284,7 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="space-y-5">
+        <section className="space-y-4 md:space-y-5">
           {error && (
             <div className="rounded-lg border border-[#cfcfcf] bg-[#f2f2f2] px-4 py-3 text-sm text-[#333333]">
               {error}
@@ -293,17 +293,31 @@ export default function Home() {
 
           <div className="overflow-hidden rounded-lg border border-[#dedede] bg-white">
             {step === "camera" ? (
-              <CameraPanel videoRef={videoRef} onCapture={capturePhoto} onCancel={() => {
-                stopCamera();
-                setStep(capturedFile ? "captured" : "idle");
-              }} />
+              <CameraPanel
+                videoRef={videoRef}
+                onCapture={capturePhoto}
+                onCancel={() => {
+                  stopCamera();
+                  setStep(capturedFile ? "captured" : "idle");
+                }}
+              />
             ) : (
-              <PreviewPanel previewUrl={previewUrl} step={step} elapsedSeconds={elapsedSeconds} statusMessage={statusMessage} />
+              <PreviewPanel
+                previewUrl={previewUrl}
+                step={step}
+                elapsedSeconds={elapsedSeconds}
+                statusMessage={statusMessage}
+              />
             )}
           </div>
 
           {recipe ? (
-            <RecipeCard recipe={recipe} onRetake={retakePhoto} onPdf={saveAsPdf} onWhatsApp={shareOnWhatsApp} />
+            <RecipeCard
+              recipe={recipe}
+              onRetake={retakePhoto}
+              onPdf={saveAsPdf}
+              onWhatsApp={shareOnWhatsApp}
+            />
           ) : (
             <EmptyRecipeState step={step} elapsedSeconds={elapsedSeconds} statusMessage={statusMessage} />
           )}
@@ -335,9 +349,9 @@ function CameraPanel({
   return (
     <div>
       <video ref={videoRef} className="aspect-video w-full bg-black object-cover" playsInline muted />
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#e5e5e5] p-4">
+      <div className="grid gap-3 border-t border-[#e5e5e5] p-3 sm:flex sm:items-center sm:justify-between sm:p-4">
         <p className="text-sm text-[#555555]">Frame the dish clearly, then capture.</p>
-        <div className="flex gap-2">
+        <div className="grid gap-2 sm:flex">
           <Button onClick={onCancel}>Cancel</Button>
           <Button onClick={onCapture} primary>
             Capture
@@ -365,9 +379,9 @@ function PreviewPanel({
         // eslint-disable-next-line @next/next/no-img-element
         <img src={previewUrl} alt="Captured dish" className="h-full w-full object-cover" />
       ) : (
-        <div className="flex h-full items-center justify-center px-8 text-center">
+        <div className="flex h-full items-center justify-center px-5 text-center sm:px-8">
           <div>
-            <p className="text-lg font-semibold text-[#171717]">No photo yet</p>
+            <p className="text-base font-semibold text-[#171717] sm:text-lg">No photo yet</p>
             <p className="mt-2 max-w-sm text-sm leading-6 text-[#666666]">
               Start with the camera. A clear overhead or angled photo works best.
             </p>
@@ -404,8 +418,8 @@ function EmptyRecipeState({
       : "Your generated recipe will appear here after capture.";
 
   return (
-    <section className="rounded-lg border border-dashed border-[#d6d6d6] bg-white p-8 text-center">
-      <p className="text-lg font-semibold text-[#171717]">
+    <section className="rounded-lg border border-dashed border-[#d6d6d6] bg-white p-5 text-center sm:p-8">
+      <p className="text-base font-semibold text-[#171717] sm:text-lg">
         {step === "analyzing" ? "Recipe in progress" : "Ready when you are"}
       </p>
       <p className="mt-2 text-sm text-[#666666]">{message}</p>
@@ -426,16 +440,18 @@ function RecipeCard({
 }) {
   return (
     <article className="rounded-lg border border-[#dedede] bg-white">
-      <div className="border-b border-[#e5e5e5] p-5 md:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="border-b border-[#e5e5e5] p-4 sm:p-5 md:p-6">
+        <div className="grid gap-4 lg:flex lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase text-[#777777]">Generated Recipe</p>
-            <h2 className="mt-2 text-3xl font-semibold">{recipe.dishName}</h2>
+            <h2 className="mt-2 text-2xl font-semibold leading-tight sm:text-3xl">
+              {recipe.dishName}
+            </h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-[#555555]">
               {recipe.shortDescription}
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid gap-2 sm:flex sm:flex-wrap lg:justify-end">
             <Button onClick={onPdf}>Save as PDF</Button>
             <Button onClick={onWhatsApp} primary>
               Share WhatsApp
@@ -443,7 +459,7 @@ function RecipeCard({
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-1.5 sm:mt-5 sm:gap-2">
           <Meta label={recipe.cuisine} />
           <Meta label={recipe.difficulty} />
           <Meta label={`Serves ${recipe.servings}`} />
@@ -454,9 +470,9 @@ function RecipeCard({
       </div>
 
       <div className="grid md:grid-cols-[0.8fr_1.2fr]">
-        <section className="border-b border-[#e5e5e5] p-5 md:border-b-0 md:border-r md:p-6">
+        <section className="border-b border-[#e5e5e5] p-4 sm:p-5 md:border-b-0 md:border-r md:p-6">
           <h3 className="text-sm font-semibold">Ingredients</h3>
-          <ul className="mt-4 space-y-3">
+          <ul className="mt-3 grid gap-3 sm:mt-4 sm:grid-cols-2 md:block md:space-y-3">
             {recipe.ingredients.map((ingredient, index) => (
               <li key={`${ingredient.item}-${index}`} className="text-sm">
                 <p className="font-medium">{ingredient.item}</p>
@@ -466,9 +482,9 @@ function RecipeCard({
           </ul>
         </section>
 
-        <section className="p-5 md:p-6">
+        <section className="p-4 sm:p-5 md:p-6">
           <h3 className="text-sm font-semibold">Method</h3>
-          <ol className="mt-4 space-y-4">
+          <ol className="mt-3 space-y-3 sm:mt-4 sm:space-y-4">
             {recipe.instructions.map((instruction, index) => (
               <li key={`${instruction}-${index}`} className="flex gap-3 text-sm leading-6">
                 <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[#171717] text-xs font-semibold text-white">
@@ -480,7 +496,7 @@ function RecipeCard({
           </ol>
 
           {recipe.platingTips.length > 0 && (
-            <div className="mt-6 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-4">
+            <div className="mt-5 rounded-lg border border-[#e5e5e5] bg-[#fafafa] p-3 sm:mt-6 sm:p-4">
               <h4 className="text-sm font-semibold">Plating Tips</h4>
               <ul className="mt-2 space-y-2 text-sm leading-6 text-[#555555]">
                 {recipe.platingTips.map((tip, index) => (
@@ -490,7 +506,7 @@ function RecipeCard({
             </div>
           )}
 
-          <div className="mt-6">
+          <div className="mt-5 grid sm:mt-6 sm:block">
             <Button onClick={onRetake}>Retake Photo</Button>
           </div>
         </section>
@@ -553,17 +569,22 @@ function WorkflowStatus({ step }: { step: WorkflowStep }) {
     { id: "analyzing", label: "Analyze" },
     { id: "ready", label: "Export" },
   ];
-  const activeIndex = step === "idle" || step === "camera" || step === "captured" ? 0 : step === "analyzing" ? 1 : 2;
+  const activeIndex =
+    step === "idle" || step === "camera" || step === "captured"
+      ? 0
+      : step === "analyzing"
+        ? 1
+        : 2;
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
       {items.map((item, index) => (
         <div
           key={item.id}
           className={
             index <= activeIndex
-              ? "rounded-lg border border-[#171717] bg-[#171717] px-3 py-2 text-xs font-medium text-white"
-              : "rounded-lg border border-[#dedede] bg-[#f7f7f7] px-3 py-2 text-xs font-medium text-[#666666]"
+              ? "rounded-lg border border-[#171717] bg-[#171717] px-2 py-2 text-center text-[11px] font-medium text-white sm:px-3 sm:text-xs"
+              : "rounded-lg border border-[#dedede] bg-[#f7f7f7] px-2 py-2 text-center text-[11px] font-medium text-[#666666] sm:px-3 sm:text-xs"
           }
         >
           {item.label}
@@ -591,8 +612,8 @@ function Button({
       disabled={disabled}
       className={
         primary
-          ? "rounded-lg bg-[#171717] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#303030] disabled:cursor-not-allowed disabled:bg-[#a6a6a6]"
-          : "rounded-lg border border-[#d6d6d6] bg-white px-4 py-2.5 text-sm font-medium text-[#171717] transition hover:bg-[#f2f2f2] disabled:cursor-not-allowed disabled:text-[#a6a6a6]"
+          ? "w-full rounded-lg bg-[#171717] px-4 py-3 text-sm font-medium text-white transition hover:bg-[#303030] disabled:cursor-not-allowed disabled:bg-[#a6a6a6] sm:w-auto sm:py-2.5"
+          : "w-full rounded-lg border border-[#d6d6d6] bg-white px-4 py-3 text-sm font-medium text-[#171717] transition hover:bg-[#f2f2f2] disabled:cursor-not-allowed disabled:text-[#a6a6a6] sm:w-auto sm:py-2.5"
       }
     >
       {children}
@@ -602,7 +623,7 @@ function Button({
 
 function Meta({ label }: { label: string }) {
   return (
-    <span className="rounded-md border border-[#d6d6d6] bg-[#f2f2f2] px-2.5 py-1 text-xs font-medium text-[#333333]">
+    <span className="rounded-md border border-[#d6d6d6] bg-[#f2f2f2] px-2 py-1 text-[11px] font-medium text-[#333333] sm:px-2.5 sm:text-xs">
       {label}
     </span>
   );
